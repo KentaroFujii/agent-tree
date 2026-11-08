@@ -575,7 +575,7 @@ function hostOf($: EngineInterface): UpdateHost {
         .then(result => (result.exitCode === 0 ? result.stdout : undefined))
         .catch(() => undefined),
     fetchLatest: () =>
-      $.http.fetch('https://raw.githubusercontent.com/MikeGT4/agent-tree/main/.claude-plugin/plugin.json', { method: 'GET' })
+      $.http.fetch('https://raw.githubusercontent.com/KentaroFujii/agent-tree/main/.claude-plugin/plugin.json', { method: 'GET' })
         .catch(() => undefined),
     update: () =>
       $.process.run(['claude', 'plugin', 'update', 'agent-tree'], { timeoutMs: 120_000 })

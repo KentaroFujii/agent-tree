@@ -77,7 +77,7 @@
       "type": "boolean",
       "title": "Auto-update",
       "description": "Once a day, install a newer Agent Tree from its marketplace",
-      "default": true
+      "default": false
     }
   }
 }
