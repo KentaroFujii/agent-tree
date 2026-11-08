@@ -1033,8 +1033,17 @@ export function drawTree(ui: Ui, s: AgentTreeState, width: number, height?: numb
     </Text>
   )
 
-  const boxRows = chunk(shown, perRow)
-  const frame = rowWidth(Math.max(1, boxRows[0]?.length ?? 1))
+  // Sub-agents spawned by sub-agents are drawn as a second tier below their parents
+  const isNested = (g: AgentTreeGroup) =>
+    g.kind === 'agent' && g.node.parentId !== undefined && s.agents.some(p => p.id === g.node.parentId)
+  const topTier = shown.filter(g => !isNested(g))
+  const subTier = shown.filter(isNested)
+  const parentRank = (g: AgentTreeGroup) =>
+    g.kind === 'agent' ? Math.max(0, topTier.findIndex(t => t.kind === 'agent' && t.node.id === g.node.parentId)) : 0
+  const subSorted = [...subTier].sort((a, b) => parentRank(a) - parentRank(b))
+  const boxRows = chunk(topTier.length ? topTier : subSorted, perRow)
+  const subRows = topTier.length ? chunk(subSorted, perRow) : []
+  const frame = rowWidth(Math.max(1, boxRows[0]?.length ?? 1, subRows[0]?.length ?? 1))
   const join = (frame - 1) / 2
   const centersOf = (row: readonly AgentTreeGroup[]) => rowCenters(row.length, (frame - rowWidth(row.length)) / 2)
 
@@ -1081,7 +1090,22 @@ export function drawTree(ui: Ui, s: AgentTreeState, width: number, height?: numb
             </Box>
           ))}
         </Box>
-        {flowText('merge', connector(frame, centersOf(boxRows.at(-1) ?? []), join, 'merge', returning ? look.frame * 2 : undefined), light ?? palette.main)}
+        {subRows.length ? (
+          <Box key="nested" flexDirection="column" alignItems="center" width={frame}>
+            {flowText('nest-merge', connector(frame, centersOf(boxRows.at(-1) ?? []), join, 'merge', flowing ? look.frame * 2 : undefined), light ?? palette.agent)}
+            <Text color={palette.agent}>{`${stemMid} sub-agents of sub-agents`}</Text>
+            {flowText('nest-split', connector(frame, centersOf(subRows[0] ?? []), join, 'split', flowing ? look.frame * 2 : undefined), light ?? palette.agent)}
+            <Text color={palette.agent}>{restyleLine(marks(frame, centersOf(subRows[0] ?? []), '▼'), glyphs)}</Text>
+            <Box key="nested-boxes" flexDirection="column" alignItems="center" rowGap={1} width={frame}>
+              {subRows.map((row, r) => (
+                <Box key={`nrow:${r}`} flexDirection="row" width={rowWidth(row.length)}>
+                  {row.map((g, i) => agentBox(g, boxGap(row.length, i)))}
+                </Box>
+              ))}
+            </Box>
+          </Box>
+        ) : null}
+        {flowText('merge', connector(frame, centersOf((subRows.length ? subRows : boxRows).at(-1) ?? []), join, 'merge', returning ? look.frame * 2 : undefined), light ?? palette.main)}
         <Text color={backMark === glyphs.node ? (light ?? palette.main) : palette.main}>{backMark}</Text>
         {arrowRow('back-row', backWidth, backBox)}
         {notes}
