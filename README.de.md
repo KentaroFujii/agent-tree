@@ -22,6 +22,14 @@ In einer laufenden Sitzung: `/plugin install agent-tree --marketplace MikeGT4/ag
 
 Braucht Claude Code 2.1.292+, getestet mit 2.1.319.
 
+## Codex-Läufe
+
+Ruft ein Agent (oder die Hauptsitzung) die Codex-CLI über Claude Codes Bash-Werkzeug auf, mit `codex exec` oder `codex exec review`, zeigt der Baum den Lauf. Im Kasten des aufrufenden Agenten steht das Codex-Modell neben dem Claude-Modell (`+ ◇ <Modell>`), danach die Denkstufe, der Zustand (läuft, fertig, fehlgeschlagen, blockiert oder gestoppt), die verstrichene Zeit und die erste Zeile der Antwort. Ein Lauf der Hauptsitzung erscheint im Hauptkasten. Ein Druck auf die Zeile öffnet die Antwort (bis zu 24 Zeilen, in einer niedrigen Leiste 8).
+
+Das Modell kommt aus `-m`, die Denkstufe aus `-c model_reasoning_effort=...`; fehlt eines, aus `~/.codex/config.toml` (`$CODEX_HOME`, falls gesetzt). Die Antwort kommt aus der mit `-o` angegebenen Datei, sonst aus stdout. Damit die Datei gelesen wird, `-o` als absoluten Pfad oder als Variable schreiben, die im selben Befehl gesetzt wird; ein Wert aus `$(mktemp -d)` ist nicht lesbar, die Antwort kommt dann aus stdout.
+
+Agenten werden nur dort einzeilig gezeichnet, wo zwei Kästen nicht nebeneinander passen; in einer niedrigen Leiste bleiben es Kästen, und die Leiste scrollt.
+
 ## Was es ausführt
 
 Einmal am Tag, in Sitzungen mit Bedienung, ruft es Claude Codes `plugin list --json` auf, liest seine Versionsnummer von raw.githubusercontent.com und startet bei einer neueren `plugin update agent-tree`. Sonst sendet es nichts ([PRIVACY.md](PRIVACY.md)).
