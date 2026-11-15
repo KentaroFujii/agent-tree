@@ -120,7 +120,7 @@ const pane = (bodyColumns: number, bodyRows = 80) =>
 async function withCodexAgent($: Engine) {
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   await $.turn.start({ text: 'Get a second opinion from Codex', turnId: 't1' })
-  await $.agent.spawn({ prompt: 'Ask Codex to review.', description: 'Codex review', subagentType: 'kentaro-skills:connector-codex' } as never)
+  await $.agent.spawn({ prompt: 'Ask Codex to review.', description: 'Codex review', subagentType: 'my-plugin:connector-codex' } as never)
 }
 
 type Drawn = { type?: string; key?: string; props?: Record<string, unknown>; children?: unknown[] }

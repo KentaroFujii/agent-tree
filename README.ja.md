@@ -4,6 +4,8 @@
 
 Claude Code のサイドペイン（画面の脇に出る表示欄）です。セッション内のエージェントを、リアルタイムのツリーで見せます。
 
+[MikeGT4/agent-tree](https://github.com/MikeGT4/agent-tree) の fork です。
+
 アドバイザーの切り替え、メインセッションの effort（思考の深さ）の設定、実行中のサブエージェントの停止と修正、サブエージェントのモデルと effort の切り替え、見た目の変更、5時間と週ごとの上限の確認ができます。
 
 <img src="https://github.com/MikeGT4/agent-tree/releases/download/v0.5.4/readme-agent-tree-4.gif" width="560" alt="上記の機能のデモ">
@@ -13,12 +15,12 @@ Claude Code のサイドペイン（画面の脇に出る表示欄）です。�
 ターミナルで次を実行します。
 
 ```bash
-claude plugin install agent-tree --marketplace MikeGT4/agent-tree
+claude plugin install agent-tree --marketplace KentaroFujii/agent-tree
 ```
 
 そのあと Claude Code を起動すると、ペインが開きます。
 
-セッションの中では `/plugin install agent-tree --marketplace MikeGT4/agent-tree` でも入れられます。
+セッションの中では `/plugin install agent-tree --marketplace KentaroFujii/agent-tree` でも入れられます。
 
 Claude Code 2.1.292 以上が必要です。動作確認は 2.1.319 で行っています。
 
