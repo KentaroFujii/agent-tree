@@ -1,6 +1,6 @@
 # Agent Tree
 
-[English](README.md)
+[English](README.md) · [日本語](README.ja.md)
 
 Seitenleiste für Claude Code, die die Agenten einer Sitzung als lebenden Baum zeigt.
 
