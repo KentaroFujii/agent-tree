@@ -165,6 +165,18 @@ export type Words = {
     correction: (d: Record<string, string | number>) => string
     correctionFailed: (d: Record<string, string | number>) => string
     correctionResent: (d: Record<string, string | number>) => string
+    codexStarted: (d: Record<string, string | number>) => string
+    codexEnded: (d: Record<string, string | number>) => string
+  }
+  codex: {
+    lines: (n: number) => string
+    more: (n: number) => string
+    earlier: (n: number) => string
+    waiting: string
+    background: string
+    noAnswer: string
+    file: string
+    blocked: string
   }
 }
 
@@ -341,6 +353,19 @@ export const WORDS: Record<Lang, Words> = {
       correction: d => `Korrektur an ${d.type}: ${d.text}`,
       correctionFailed: d => `Korrektur an ${d.type} nicht zugestellt${d.text ? `: ${d.text}` : ''}`,
       correctionResent: d => `Korrektur an ${d.type} nachgeschickt`,
+      codexStarted: d => `Codex ${d.kind} gestartet${d.who ? ` von ${d.who}` : ''}: ${d.model || 'Standardmodell'}${d.effort ? ` · ${d.effort}` : ''}`,
+      codexEnded: d =>
+        `Codex ${d.kind}${d.who ? ` von ${d.who}` : ''} ${d.status === 'blocked' ? WORDS.de.codex.blocked : (WORDS.de.status[d.status as AgentTreeStatus] ?? d.status)} nach ${fmtDuration(Number(d.durationMs))}`,
+    },
+    codex: {
+      lines: n => `${n} ${n === 1 ? 'Zeile' : 'Zeilen'}`,
+      more: n => `… ${n} weitere ${n === 1 ? 'Zeile' : 'Zeilen'}`,
+      earlier: n => `+${n} frühere Codex-Läufe`,
+      waiting: 'wartet auf die Antwort',
+      background: 'im Hintergrund',
+      noAnswer: 'keine Antwort gelesen',
+      file: 'Datei',
+      blocked: 'blockiert',
     },
   },
   en: {
@@ -512,6 +537,19 @@ export const WORDS: Record<Lang, Words> = {
       correction: d => `Correction to ${d.type}: ${d.text}`,
       correctionFailed: d => `Correction to ${d.type} not delivered${d.text ? `: ${d.text}` : ''}`,
       correctionResent: d => `Correction to ${d.type} sent again`,
+      codexStarted: d => `Codex ${d.kind} started${d.who ? ` by ${d.who}` : ''}: ${d.model || 'default model'}${d.effort ? ` · ${d.effort}` : ''}`,
+      codexEnded: d =>
+        `Codex ${d.kind}${d.who ? ` by ${d.who}` : ''} ${d.status === 'blocked' ? WORDS.en.codex.blocked : (WORDS.en.status[d.status as AgentTreeStatus] ?? d.status)} after ${fmtDuration(Number(d.durationMs))}`,
+    },
+    codex: {
+      lines: n => `${n} ${n === 1 ? 'line' : 'lines'}`,
+      more: n => `… ${n} more ${n === 1 ? 'line' : 'lines'}`,
+      earlier: n => `+${n} earlier Codex ${n === 1 ? 'run' : 'runs'}`,
+      waiting: 'waiting for the answer',
+      background: 'in background',
+      noAnswer: 'no answer read',
+      file: 'file',
+      blocked: 'blocked',
     },
   },
 }

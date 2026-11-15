@@ -575,13 +575,24 @@ describe('Agent Tree', () => {
     await ui.unmount()
   })
 
-  test('bei 30 Zeilen Höhe stehen Unteragenten als Zeilen und das Protokoll bleibt', de, async ($, on) => {
+  test('bei 30 Zeilen Höhe stehen Unteragenten als Kästen; was nicht passt, scrollt der Bereich', de, async ($, on) => {
     engine(on)
     await oneAgentWithAdvisor($)
     const ui = await $.ui.mount(pane(90, 30))
+    const drawn = await screen(ui)
+    expect(drawn).toMatch(/"key":"boxes"/)
+    expect(drawn).not.toMatch(/"key":"rows"/)
+    expect(drawn).toMatch(/"key":"ag:sub-1"[^]*Code lesen[^]*◐ läuft/)
+    expect(drawn).not.toMatch(/schreibt nie/)
+    await ui.unmount()
+  })
+
+  test('nur bei zu wenig Breite für zwei Kästen stehen Unteragenten als Zeilen', de, async ($, on) => {
+    engine(on)
+    await oneAgentWithAdvisor($)
+    const ui = await $.ui.mount(pane(40, 30))
     expect(await screen(ui)).toMatch(/◐ läuft · Explore · Code lesen/)
-    expect(await screen(ui)).toMatch(/Sitzungsprotokoll/)
-    expect(await screen(ui)).not.toMatch(/schreibt nie/)
+    expect(await screen(ui)).toMatch(/"key":"rows"/)
     await ui.unmount()
   })
 
