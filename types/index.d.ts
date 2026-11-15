@@ -124,8 +124,32 @@ export type AgentTreeDetail = {
   state: 'loading' | 'ready' | 'denied'
 }
 
+// blocked: the Bash call was refused before Codex started (a hook, a permission)
+export type AgentTreeCodexStatus = 'running' | 'done' | 'failed' | 'stopped' | 'blocked'
+
+export type AgentTreeCodexRun = {
+  id: string
+  agentId?: string
+  kind: 'exec' | 'review'
+  model?: string
+  modelFrom?: 'flag' | 'config'
+  effort?: string
+  output?: string
+  outputBefore?: number
+  images?: number
+  background?: boolean
+  status: AgentTreeCodexStatus
+  startedAt: number
+  endedAt?: number
+  answer?: string
+  answerLines?: number
+  answerFrom?: 'file' | 'output' | 'deny'
+}
+
 export type AgentTreeState = {
   startedAt: number
+  codex?: AgentTreeCodexRun[]
+  codexOpen?: string
   choices?: AgentTreeChoices
   detail?: AgentTreeDetail
   stopping?: string[]

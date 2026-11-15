@@ -1,6 +1,8 @@
 // © 2026 Mike Pollow, Digitalroots. MIT-Lizenz.
 import type {
   AgentTreeChoices,
+  AgentTreeCodexRun,
+  AgentTreeCodexStatus,
   AgentTreeCorrection,
   AgentTreeCounts,
   AgentTreeDetail,
@@ -870,7 +872,100 @@ export function freshTree(from: AgentTreeState, now: number): AgentTreeState {
     ...(from.corrections ? { corrections: without(from.corrections, gone) } : {}),
     ...(from.selected === MAIN || from.selected === NEW_AGENTS || (from.selected !== undefined && alive.has(from.selected)) ? { selected: from.selected } : {}),
   }
-  return from.main.limits ? withLimits(fresh, from.main.limits) : fresh
+  const codexRunning = codexOf(from).filter(r => r.status === 'running')
+  const withCodex: AgentTreeState = codexRunning.length
+    ? { ...fresh, codex: codexRunning, ...(from.codexOpen && codexRunning.some(r => r.id === from.codexOpen) ? { codexOpen: from.codexOpen } : {}) }
+    : fresh
+  return from.main.limits ? withLimits(withCodex, from.main.limits) : withCodex
+}
+
+export const CODEX_KEPT = 16
+export const CODEX_LINES_KEPT = 80
+export const CODEX_LINE_LIMIT = 240
+
+export function codexOf(s: AgentTreeState): AgentTreeCodexRun[] {
+  return Array.isArray(s.codex) ? s.codex : []
+}
+
+export function codexRunning(s: AgentTreeState): boolean {
+  return codexOf(s).some(r => r.status === 'running')
+}
+
+export type CodexStart = {
+  id: string
+  agentId?: string
+  kind: 'exec' | 'review'
+  model?: string
+  modelFrom?: 'flag' | 'config'
+  effort?: string
+  output?: string
+  outputBefore?: number
+  images?: number
+}
+
+function codexCaller(s: AgentTreeState, agentId: string | undefined): string {
+  if (agentId === undefined) return ''
+  return findAgent(s, agentId)?.type ?? '?'
+}
+
+export function codexText(text: string): { text: string; lines: number } {
+  const lines: string[] = []
+  for (const raw of text.replace(/\r\n?/g, '\n').split('\n')) {
+    const line = excerpt(raw, CODEX_LINE_LIMIT)
+    if (!line && (lines.length === 0 || lines.at(-1) === '')) continue
+    lines.push(line)
+  }
+  while (lines.at(-1) === '') lines.pop()
+  return { text: lines.slice(0, CODEX_LINES_KEPT).join('\n'), lines: lines.length }
+}
+
+export function codexStarted(s: AgentTreeState, input: CodexStart, now: number): AgentTreeState {
+  const run: AgentTreeCodexRun = { ...input, status: 'running', startedAt: now }
+  const kept = [...codexOf(s).filter(r => r.id !== input.id), run]
+  while (kept.length > CODEX_KEPT) {
+    const at = kept.findIndex(r => r.status !== 'running')
+    if (at < 0) break
+    kept.splice(at, 1)
+  }
+  const open = s.codexOpen !== undefined && kept.some(r => r.id === s.codexOpen) ? s.codexOpen : undefined
+  const next: AgentTreeState = { ...s, codex: kept }
+  if (open === undefined) delete next.codexOpen
+  const data = { who: codexCaller(s, input.agentId), kind: input.kind, model: input.model ?? '', effort: input.effort ?? '' }
+  return logged(next, input.agentId === undefined ? 'main' : 'agent', 'codexStarted', data, now)
+}
+
+export function codexBackground(s: AgentTreeState, id: string): AgentTreeState {
+  if (!codexOf(s).some(r => r.id === id && r.status === 'running')) return s
+  return { ...s, codex: codexOf(s).map(r => (r.id === id ? { ...r, background: true } : r)) }
+}
+
+export function codexEnded(
+  s: AgentTreeState,
+  id: string,
+  input: { status: Exclude<AgentTreeCodexStatus, 'running'>; answer?: string; from?: AgentTreeCodexRun['answerFrom'] },
+  now: number,
+): AgentTreeState {
+  const run = codexOf(s).find(r => r.id === id)
+  if (!run || run.status !== 'running') return s
+  const text = input.answer === undefined ? undefined : codexText(input.answer)
+  const ended: AgentTreeCodexRun = {
+    ...run,
+    status: input.status,
+    endedAt: now,
+    ...(text && text.lines > 0 ? { answer: text.text, answerLines: text.lines, ...(input.from ? { answerFrom: input.from } : {}) } : {}),
+  }
+  const next: AgentTreeState = { ...s, codex: codexOf(s).map(r => (r.id === id ? ended : r)) }
+  const data = { who: codexCaller(s, run.agentId), kind: run.kind, status: input.status, durationMs: Math.max(0, now - run.startedAt) }
+  return logged(next, run.agentId === undefined ? 'main' : 'agent', 'codexEnded', data, now)
+}
+
+export function codexToggled(s: AgentTreeState, id: string): AgentTreeState {
+  if (s.codexOpen === id || !codexOf(s).some(r => r.id === id)) {
+    const next = { ...s }
+    delete next.codexOpen
+    return next
+  }
+  return { ...s, codexOpen: id }
 }
 
 export function resetTime(kind: string, iso: string | undefined, locale: string): string | undefined {
@@ -956,6 +1051,10 @@ export function trimmed(s: AgentTreeState, maxAgents: number): AgentTreeState {
     agents: s.agents.filter(n => !dropped.has(n.id)),
   }
   if (next.selected !== undefined && dropped.has(next.selected)) delete next.selected
+  if (s.codex?.some(r => r.agentId !== undefined && dropped.has(r.agentId))) {
+    next.codex = s.codex.filter(r => r.agentId === undefined || !dropped.has(r.agentId))
+    if (next.codexOpen !== undefined && !next.codex.some(r => r.id === next.codexOpen)) delete next.codexOpen
+  }
   return next
 }
 

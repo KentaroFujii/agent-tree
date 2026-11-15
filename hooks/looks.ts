@@ -52,6 +52,21 @@ export const PALETTES: Record<AgentTreeColors, Palette> = {
   mono: { main: '#F2F2F5', agent: '#D2D2D8', advisor: '#B8B8C0', done: '#A3A3AC', dim: '#8E8E9A', failed: 'error', warn: 'warning' },
 }
 
+export const CODEX_COLORS: Record<AgentTreeColors, string> = {
+  original: '#5FD7C4',
+  light: '#0E7C70',
+  retro: '#6FC7A8',
+  mono: '#C4C4CC',
+}
+
+export const CODEX_MARKS: Record<AgentTreeStyle, string> = {
+  line: '◇',
+  pixel: '◇',
+  braille: '◇',
+  hud: '◇',
+  ascii: '<>',
+}
+
 export const LIGHTS: Record<AgentTreeLight, string | undefined> = {
   standard: undefined,
   white: '#FFFFFF',

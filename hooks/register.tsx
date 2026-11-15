@@ -9,6 +9,8 @@ import { introInfo } from './intro-model.ts'
 import type { IntroInfo } from './intro-model.ts'
 import { DEFAULT_LOOK, LOOK_OPTIONS, PALETTES, lookFrom } from './looks.ts'
 import { checkForUpdate, UPDATE_KEY } from './update.ts'
+import { codexDefaults, codexOutcome, expandVariables, parseCodexCommand, resolvedPath } from './codex.ts'
+import type { CodexCall } from './codex.ts'
 import type { UpdateHost } from './update.ts'
 import type { LookRow } from './looks.ts'
 import {
@@ -20,6 +22,12 @@ import {
   clashed,
   fileNoted,
   closed,
+  codexBackground,
+  codexEnded,
+  codexOf,
+  codexRunning,
+  codexStarted,
+  codexToggled,
   completed,
   correctionFailed,
   correctionHeld,
@@ -221,7 +229,118 @@ async function snapshot($: EngineInterface): Promise<Carried | undefined> {
 }
 
 function busy(s: AgentTreeState): boolean {
-  return counts(s).running > 0 || phaseOf(s) === 'reviewing'
+  return counts(s).running > 0 || phaseOf(s) === 'reviewing' || codexRunning(s)
+}
+
+type CodexEnd = Parameters<typeof codexEnded>[2]
+let codexSeq = 0
+
+async function codexPlaces($: EngineInterface): Promise<{ home?: string; config?: string }> {
+  const home = (await $.env.get('HOME').catch(() => undefined)) || undefined
+  const own = (await $.env.get('CODEX_HOME').catch(() => undefined)) || undefined
+  const dir = own ?? (home ? `${home.replace(/\/$/, '')}/.codex` : undefined)
+  return { home, config: dir ? `${dir.replace(/\/$/, '')}/config.toml` : undefined }
+}
+
+async function fileStamp($: EngineInterface, path: string): Promise<number | undefined> {
+  const stat = await $.fs.stat(path).catch(() => undefined)
+  return stat && stat.kind === 'file' ? stat.mtimeMs : undefined
+}
+
+async function freshOutput($: EngineInterface, path: string | undefined, before: number | undefined): Promise<string | undefined> {
+  if (!path) return undefined
+  const after = await fileStamp($, path)
+  if (after === undefined || (before !== undefined && after === before)) return undefined
+  const text: unknown = await $.fs.read(path).catch(() => undefined)
+  return typeof text === 'string' && text.trim() ? text : undefined
+}
+
+async function finishCodex($: EngineInterface, id: string, end: CodexEnd): Promise<void> {
+  const now = await clock($)
+  await change($, s => codexEnded(s, id, end, now))
+}
+
+async function settleCodexRun($: EngineInterface, id: string, result: unknown, output: string | undefined): Promise<void> {
+  const before = codexOf(await latest($)).find(run => run.id === id)?.outputBefore
+  const file = await freshOutput($, output, before)
+  const outcome = codexOutcome(result, file !== undefined)
+  if (outcome.status === 'background') {
+    await change($, s => codexBackground(s, id))
+    return
+  }
+  if (outcome.status === 'blocked') return finishCodex($, id, { status: 'blocked', ...(outcome.text ? { answer: outcome.text, from: 'deny' as const } : {}) })
+  if (file) return finishCodex($, id, { status: outcome.status, answer: file, from: 'file' })
+  return finishCodex($, id, { status: outcome.status, ...(outcome.text ? { answer: outcome.text, from: 'output' as const } : {}) })
+}
+
+// `$HOME` and `$TMPDIR` left in a path after the command's own assignments; a path
+// still holding a variable is not read (`d=$(mktemp -d); ... -o $d/out.md`)
+async function filledPath($: EngineInterface, path: string): Promise<string | undefined> {
+  if (!path.includes('$')) return path
+  const known: Record<string, string> = {}
+  const home = (await $.env.get('HOME').catch(() => undefined)) || undefined
+  const tmp = (await $.env.get('TMPDIR').catch(() => undefined)) || undefined
+  if (home) known.HOME = home
+  if (tmp) known.TMPDIR = tmp.replace(/\/$/, '')
+  const filled = expandVariables(path, known)
+  return filled.includes('$') ? undefined : filled
+}
+
+async function watchCodex<R>($: EngineInterface, from: { tool_use_id?: string; agentId?: string }, call: CodexCall, run: () => Promise<R>): Promise<R> {
+  const now = await clock($)
+  const id = from.tool_use_id || `codex-${now}-${++codexSeq}`
+  let output: string | undefined
+  try {
+    const places = await codexPlaces($)
+    const named = call.output ? await filledPath($, call.output) : undefined
+    output = named ? resolvedPath(named, call.cwd, places.home) : undefined
+    const defaults = call.model === undefined || call.effort === undefined ? codexDefaults(places.config ? await $.fs.read(places.config).catch(() => undefined) : undefined) : {}
+    const outputBefore = output ? await fileStamp($, output) : undefined
+    const model = call.model ?? defaults.model
+    await change($, s =>
+      codexStarted(
+        s,
+        {
+          id,
+          ...(from.agentId ? { agentId: from.agentId } : {}),
+          kind: call.kind,
+          ...(model ? { model, modelFrom: call.model ? ('flag' as const) : ('config' as const) } : {}),
+          ...((call.effort ?? defaults.effort) ? { effort: call.effort ?? defaults.effort } : {}),
+          ...(output ? { output } : {}),
+          ...(outputBefore !== undefined ? { outputBefore } : {}),
+          ...(call.images ? { images: call.images } : {}),
+        },
+        now,
+      ),
+    )
+  } catch {
+    // the call runs on whether or not the tree took it
+  }
+  let result: R
+  try {
+    result = await run()
+  } catch (err) {
+    await finishCodex($, id, { status: 'failed' }).catch(() => undefined)
+    throw err
+  }
+  await settleCodexRun($, id, result, output).catch(() => undefined)
+  return result
+}
+
+// A run Bash moved to the background ends when its answer file appears: checked
+// after each later tool call of the same caller and when an agent's turn ends,
+// where an agent that ends with no file leaves its run stopped
+async function settleBackgroundCodex($: EngineInterface, agentId: string | undefined, ended: boolean): Promise<void> {
+  const waiting = codexOf(await latest($)).filter(run => run.status === 'running' && run.background && (ended || run.agentId === agentId))
+  for (const run of waiting) {
+    const file = await freshOutput($, run.output, run.outputBefore)
+    if (file) await finishCodex($, run.id, { status: 'done', answer: file, from: 'file' })
+    else if (ended && agentId !== undefined && run.agentId === agentId) await finishCodex($, run.id, { status: 'stopped' })
+  }
+}
+
+function backgroundCodexOf(s: AgentTreeState, agentId: string | undefined): boolean {
+  return codexOf(s).some(run => run.status === 'running' && run.background && run.agentId === agentId)
 }
 
 function keepTicking($: EngineInterface, s: AgentTreeState): void {
@@ -540,6 +659,7 @@ function actionsFor($: EngineInterface): TreeActions {
     look: () => void change($, t => (t.lookOpen ? closed(t) : lookOpened(t))).catch(ignore),
     restyle: (row, id) => void restyle($, row, id).catch(ignore),
     restyleDefault: () => void resetLook($).catch(ignore),
+    codex: runId => void change($, t => codexToggled(t, runId)).catch(ignore),
   }
 }
 
@@ -830,8 +950,14 @@ export const register: Register = (on, options) => {
     const input = e as unknown as Record<string, unknown>
     const kind = toolKind(String(e.tool))
     const path = kind === 'change' ? pathOf(input) : undefined
+    const codexCall = String(e.tool) === 'Bash' ? parseCodexCommand(input.command) : undefined
+    const proceed = async (call: typeof e) => {
+      const result = await (codexCall ? watchCodex($, { tool_use_id: input.tool_use_id as string | undefined, agentId }, codexCall, () => next(call)) : next(call))
+      if (!codexCall && backgroundCodexOf(await latest($), agentId)) await settleBackgroundCodex($, agentId, false).catch(() => undefined)
+      return result
+    }
     if (!agentId) {
-      const result = await next(e)
+      const result = await proceed(e)
       if (path && succeeded(result)) await noteChange($, MAIN, path).catch(() => undefined)
       return result
     }
@@ -859,7 +985,7 @@ export const register: Register = (on, options) => {
       const now = await clock($)
       await change($, s => toolRan(s, { agentId, label, kind }, now))
     })().catch(() => undefined)
-    const result = await next(e)
+    const result = await proceed(e)
     await noted
     if (succeeded(result)) {
       await change($, s => fileNoted(s, agentId, kind, file)).catch(() => undefined)
@@ -876,6 +1002,7 @@ export const register: Register = (on, options) => {
       completed(s, { agentId: e.agentId, answer: e.answer, reason: e.reason, isAborted: e.isAborted, durationMs: e.durationMs }, now),
     ).catch(() => undefined)
     if (e.agentId && after) await settleUnread($, after, e.agentId, now).catch(() => undefined)
+    if (after && codexRunning(after)) await settleBackgroundCodex($, e.agentId, true).catch(() => undefined)
     if (!e.agentId) await catchUp($, now, keep).catch(() => undefined)
     await dropChanger($, e.agentId ?? MAIN).catch(() => undefined)
     return result

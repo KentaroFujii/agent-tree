@@ -3,6 +3,7 @@ import type { Elements, RenderChildren } from 'claude-code'
 
 import type {
   AgentTreeAdvisorCall,
+  AgentTreeCodexRun,
   AgentTreeCorrectionState,
   AgentTreeGroup,
   AgentTreeLimit,
@@ -16,6 +17,7 @@ import {
   EFFORT_LEVELS,
   WORKFLOW_PREFIX,
   clashShown,
+  codexOf,
   contextLevel,
   familyOf,
   feedbackFor,
@@ -42,7 +44,7 @@ import {
   typeLabel,
 } from './model.ts'
 import type { Feedback } from './model.ts'
-import { LOOK_OPTIONS, LOOK_ROWS, PALETTES, STYLES, frameEdges, isLookChoice, lightColor, lookFrom, restyleLine } from './looks.ts'
+import { CODEX_COLORS, CODEX_MARKS, LOOK_OPTIONS, LOOK_ROWS, PALETTES, STYLES, frameEdges, isLookChoice, lightColor, lookFrom, restyleLine } from './looks.ts'
 import type { Glyphs, LookRow, Palette } from './looks.ts'
 import { WORDS, activityText, familyOr, logLine, lookOptionLabel, toolText, wordsFor } from './words.ts'
 import type { Lang, Words } from './words.ts'
@@ -120,6 +122,7 @@ export type TreeActions = {
   restyle: (row: LookRow, id: string) => void
   restyleDefault: () => void
   deselect: () => void
+  codex?: (runId: string) => void
 }
 
 export type TreeLook = {
@@ -148,6 +151,7 @@ export function pressKey(actions: TreeActions, key: string): boolean {
   else if (kind === 'write') actions.write(rest)
   else if (kind === 'stop' || kind === 'halt') actions.stop(rest)
   else if (kind === 'effort') return targetKey(rest, (target, value) => actions.effort(target, value))
+  else if ((kind === 'codex' || kind === 'codex-open') && actions.codex && rest) actions.codex(rest)
   else return false
   return true
 }
@@ -221,6 +225,12 @@ export type RowPlanInput = {
   limitRows?: number
   actionRows?: number
   hintRows?: number
+  // the open Codex answer below the tree, its margin included
+  codexRows?: number
+  // Codex lines inside the main session's box
+  mainRows?: number
+  // Codex lines each group adds in its place (inside a box, or under a one-line row), in `total`'s order
+  extraRows?: readonly number[]
 }
 
 export type RowPlan = { shown: number; logRows: number; advisor?: false }
@@ -255,26 +265,29 @@ export function limitSegments(limits: readonly AgentTreeLimit[], w: Words, glyph
 }
 
 function treeRows(o: RowPlanInput, shown: number): number {
-  const top = 7 + 1
+  const top = 7 + (o.mainRows ?? 0) + 1
   const label = Math.max(1, o.labelRows ?? 1)
   const later = o.earlier ? 1 : 0
   if (o.total === 0) return top + label + later
   const hidden = shown < o.total ? 1 : 0
   const back = 1 + 5 + hidden + later
-  if (o.asRows) return top + label + shown + back
+  const extra = (o.extraRows ?? []).slice(0, shown)
+  if (o.asRows) return top + label + shown + extra.reduce((sum, n) => sum + n, 0) + back
   const boxRows = Math.ceil(shown / o.perRow)
-  return top + 3 + label + (10 * boxRows - 1) + 1 + back
+  let taller = 0
+  for (let r = 0; r < boxRows; r++) taller += Math.max(0, ...extra.slice(r * o.perRow, (r + 1) * o.perRow))
+  return top + 3 + label + (10 * boxRows - 1) + taller + 1 + back
 }
 
 const LOG_FRAME_ROWS = 4
 
-function usedRows(o: RowPlanInput, shown: number, logRows: number | undefined): number {
+export function usedRows(o: RowPlanInput, shown: number, logRows: number | undefined): number {
   const header = (o.tight ? 1 : 3) + (o.pickerRows ?? 0)
   const tree = treeRows(o, shown)
   const body = o.wide ? Math.max(o.advisorRows, tree) : o.advisorRows + tree
   const log = logRows === undefined ? 0 : LOG_FRAME_ROWS + logRows
   const foot = o.detailRows ? 0 : (o.limitRows ?? 0) + (o.helpRows ?? 0)
-  return header + 1 + body + (o.actionRows ?? 0) + (o.hintRows ?? 0) + (o.detailRows ?? 0) + log + foot
+  return header + 1 + body + (o.codexRows ?? 0) + (o.actionRows ?? 0) + (o.hintRows ?? 0) + (o.detailRows ?? 0) + log + foot
 }
 
 function leanest(o: RowPlanInput, cap: number): number {
@@ -517,6 +530,159 @@ export function helpLine(items: readonly string[], width: number): string {
   return line
 }
 
+// Codex runs are drawn where their caller is: inside a sub-agent's box, under its
+// one-line row, or inside the main session's box. A press on a run opens its answer
+// in a panel below the tree.
+export const CODEX_IN_BOX = 2
+export const CODEX_IN_ROW = 3
+export const CODEX_OPEN_LINES = 24
+export const CODEX_OPEN_TIGHT = 8
+
+export type CodexPlace = 'box' | 'row' | 'main'
+
+export type CodexLine =
+  | { kind: 'run'; key: string; run: AgentTreeCodexRun; text: string }
+  | { kind: 'state'; key: string; run: AgentTreeCodexRun; text: string }
+  | { kind: 'text'; key: string; text: string; tone: 'answer' | 'note' }
+  // the Claude model and the Codex model side by side; the Codex part from `codexFrom`
+  | { kind: 'models'; key: string; text: string; codexFrom: number }
+
+export type CodexLook = { lang: Lang; now: number; spin: string; marks: Glyphs['marks']; mark: string; rail: string; tight: boolean }
+
+export function codexRunsOf(s: AgentTreeState, caller: string | undefined, limit: number): { runs: AgentTreeCodexRun[]; hidden: number } {
+  const own = codexOf(s).filter(r => r.agentId === caller)
+  const running = (r: AgentTreeCodexRun) => r.status === 'running'
+  const ranked = [...own].sort((a, b) =>
+    running(a) !== running(b) ? (running(a) ? -1 : 1) : (b.endedAt ?? b.startedAt) - (a.endedAt ?? a.startedAt),
+  )
+  let chosen = ranked.slice(0, limit)
+  const open = own.find(r => r.id === s.codexOpen)
+  if (open && !chosen.includes(open)) chosen = [...chosen.slice(0, Math.max(0, limit - 1)), open]
+  return { runs: own.filter(r => chosen.includes(r)), hidden: own.length - chosen.length }
+}
+
+function codexState(run: AgentTreeCodexRun, o: CodexLook, w: Words, short: boolean): string {
+  if (run.status === 'blocked') return `${o.marks.stopped} ${w.codex.blocked}`
+  const took = fmtShortDuration((run.endedAt ?? o.now) - run.startedAt)
+  const mark = run.status === 'running' ? o.spin : o.marks[run.status]
+  return short ? `${mark} ${took}` : `${mark} ${w.status[run.status]} ${took}`
+}
+
+// ▸ where a press shows more of an answer, ▾ on the opened one
+function codexFold(s: AgentTreeState, run: AgentTreeCodexRun): '' | ' ▸' | ' ▾' {
+  if (s.codexOpen === run.id) return ' ▾'
+  return run.answer ? ' ▸' : ''
+}
+
+function codexPreview(run: AgentTreeCodexRun, w: Words): { text: string; tone: 'answer' | 'note' } | undefined {
+  if (run.status === 'running') return undefined
+  const first = (run.answer ?? '').split('\n').find(line => line.trim())
+  return first ? { text: first, tone: 'answer' } : { text: w.codex.noAnswer, tone: 'note' }
+}
+
+// The Codex models a caller's runs used, each named once
+function codexModelsOf(runs: readonly AgentTreeCodexRun[], w: Words): string[] {
+  return [...new Set(runs.map(r => r.model ?? w.standard))]
+}
+
+// In a sub-agent's box the Codex model joins the Claude model on its line when
+// both fit there (" + ◇ gpt-5.5"); else it takes the line below (codexInline)
+export function codexBeside(s: AgentTreeState, caller: string, o: CodexLook, claude: string, room: number): string | undefined {
+  const models = codexModelsOf(codexRunsOf(s, caller, CODEX_IN_BOX).runs, wordsFor(o.lang))
+  if (!models.length) return undefined
+  const part = ` + ${o.mark} ${models.join(', ')}`
+  return [...`${claude}${part}`].length <= room ? part : undefined
+}
+
+// The lines one caller's runs take in its place; their count is what planRows adds.
+// With `claude` (a sub-agent's Claude model) the two models are named together
+// once, and a run's own lines leave its model out while all runs share one.
+export function codexInline(s: AgentTreeState, caller: string | undefined, place: CodexPlace, o: CodexLook, room: number, claude?: string): CodexLine[] {
+  const w = wordsFor(o.lang)
+  const { runs, hidden } = codexRunsOf(s, caller, place === 'row' ? CODEX_IN_ROW : CODEX_IN_BOX)
+  const lines: CodexLine[] = []
+  const fits = (text: string) => [...text].length <= room
+  const models = codexModelsOf(runs, w)
+  const paired = claude !== undefined && caller !== undefined && place !== 'main' && runs.length > 0
+  const oneModel = paired && models.length === 1
+  if (paired && place === 'box' && !codexBeside(s, caller, o, claude, room)) {
+    lines.push({ kind: 'models', key: `codex-models:${caller}`, text: `+ ${o.mark} ${models.join(', ')}`, codexFrom: 2 })
+  }
+  if (paired && place === 'row') {
+    const head = `  ${claude} + `
+    const full = `${head}${o.mark} Codex ${models.join(', ')}`
+    lines.push({ kind: 'models', key: `codex-models:${caller}`, text: fits(full) ? full : `${head}${o.mark} ${models.join(', ')}`, codexFrom: [...head].length })
+  }
+  for (const run of runs) {
+    const model = run.model ?? w.standard
+    const fold = codexFold(s, run)
+    const kind = run.kind + (run.images ? ` +${run.images} img` : '')
+    const count = run.answerLines ? ` · ${w.codex.lines(run.answerLines)}` : ''
+    const away = run.background && run.status === 'running' ? ` · ${w.codex.background}` : ''
+    const state = codexState(run, o, w, false)
+    const preview = codexPreview(run, w)
+    const indent = place === 'row' ? (paired ? '    ' : '  ') : ''
+    const under = place === 'row' ? (paired ? '      ' : '    ') : ''
+    if (oneModel && place === 'box') {
+      // the model is named above: how deep, how it went and how long, on one line
+      const head = [...(run.kind === 'review' ? ['review'] : []), ...(run.effort ? [run.effort] : [])]
+      const short = `${codexState(run, o, w, true)}${away}${fold}`
+      const full = `${head.length ? `${head.join(' · ')} · ` : ''}${short}`
+      lines.push({ kind: 'run', key: `codex:${run.id}`, run, text: fits(full) ? full : short })
+    } else if (oneModel) {
+      const what = [...(run.effort ? [run.effort] : []), kind].join(' · ')
+      const whole = `${indent}${o.mark} ${what} · ${state}${away}${count}${fold}`
+      if (fits(whole)) lines.push({ kind: 'run', key: `codex:${run.id}`, run, text: whole })
+      else {
+        lines.push({ kind: 'run', key: `codex:${run.id}`, run, text: `${indent}${o.mark} ${what}${fold}` })
+        lines.push({ kind: 'state', key: `codex-state:${run.id}`, run, text: `${under}${state}${away}${count}` })
+      }
+    } else if (place === 'box') {
+      lines.push({ kind: 'run', key: `codex:${run.id}`, run, text: `${o.mark} ${model}${fold}` })
+      const head = [...(run.kind === 'review' ? ['review'] : []), ...(run.effort ? [run.effort] : [])]
+      lines.push({ kind: 'state', key: `codex-state:${run.id}`, run, text: `${head.length ? `${head.join(' · ')} · ` : ''}${codexState(run, o, w, true)}${away}` })
+    } else {
+      // one line where it fits; else what it is on the first, how it went on the second
+      const effort = run.effort ? ` · ${run.effort}` : ''
+      const whole = `${indent}${o.mark} Codex · ${model}${effort} · ${kind} · ${state}${away}${count}${fold}`
+      if (place === 'row' && fits(whole)) lines.push({ kind: 'run', key: `codex:${run.id}`, run, text: whole })
+      else {
+        const named = `${indent}${o.mark} Codex · ${model}${effort}${fold}`
+        const first = fits(named) ? named : `${indent}${o.mark} Codex · ${model}${fold}`
+        const moved = first !== named && run.effort ? `${run.effort} · ` : ''
+        lines.push({ kind: 'run', key: `codex:${run.id}`, run, text: first })
+        lines.push({ kind: 'state', key: `codex-state:${run.id}`, run, text: `${under}${moved}${state}${away} · ${kind}${count}` })
+      }
+    }
+    if (preview) lines.push({ kind: 'text', key: `codex-line:${run.id}`, text: `${under}${o.rail} ${preview.text}`, tone: preview.tone })
+  }
+  if (hidden) lines.push({ kind: 'text', key: `codex-earlier:${caller ?? MAIN}`, text: `${place === 'row' ? '  ' : ''}${w.codex.earlier(hidden)}`, tone: 'note' })
+  return lines
+}
+
+// The opened run: its whole answer (to a cap), below the tree
+export function codexOpenLines(s: AgentTreeState, o: CodexLook): CodexLine[] {
+  const run = codexOf(s).find(r => r.id === s.codexOpen)
+  if (!run) return []
+  const w = wordsFor(o.lang)
+  const node = run.agentId === undefined ? undefined : s.agents.find(n => n.id === run.agentId)
+  const who = run.agentId === undefined ? w.main : node ? `${typeLabel(node.type)} · ${node.description}` : '?'
+  const parts = [`${o.mark} Codex`, who, run.model ?? w.standard, ...(run.effort ? [run.effort] : []), run.kind, codexState(run, o, w, false)]
+  const lines: CodexLine[] = [{ kind: 'run', key: `codex-open:${run.id}`, run, text: `${parts.join(' · ')} ▾` }]
+  const answer = run.answer ? run.answer.split('\n') : []
+  const total = run.answerLines ?? answer.length
+  const shown = answer.slice(0, o.tight ? CODEX_OPEN_TIGHT : CODEX_OPEN_LINES)
+  shown.forEach((text, i) => lines.push({ kind: 'text', key: `codex-open-line:${run.id}:${i}`, text: `  ${o.rail} ${text}`, tone: 'answer' }))
+  if (!answer.length) {
+    lines.push({ kind: 'text', key: `codex-open-line:${run.id}:none`, text: `  ${o.rail} ${run.status === 'running' ? w.codex.waiting : w.codex.noAnswer}`, tone: 'note' })
+  }
+  if (total > shown.length && answer.length) {
+    lines.push({ kind: 'text', key: `codex-open-line:${run.id}:more`, text: `  ${o.rail} ${w.codex.more(total - shown.length)}`, tone: 'note' })
+  }
+  if (run.output) lines.push({ kind: 'text', key: `codex-open-line:${run.id}:file`, text: `  ${o.rail} ${w.codex.file}: ${run.output}`, tone: 'note' })
+  return lines
+}
+
 export function drawTree(ui: Ui, s: AgentTreeState, width: number, height?: number, look: TreeLook = { frame: 0, animate: false }) {
   const { Box, Text, Button } = ui
   const lang: Lang = look.lang ?? 'de'
@@ -534,7 +700,9 @@ export function drawTree(ui: Ui, s: AgentTreeState, width: number, height?: numb
   const wide = width >= WIDE_FROM && !tight
   const treeWidth = Math.max(1, oddFloor(wide ? width - ADVISOR_WIDTH - 2 : width))
   const perRow = Math.max(1, Math.floor((treeWidth + AGENT_GAP) / (AGENT_WIDTH + AGENT_GAP)))
-  const asRows = tight || perRow < 2
+  // Boxes wherever two fit side by side, at any height: what a low pane cannot
+  // hold, its body scrolls to. One line each only where the width is short.
+  const asRows = perRow < 2
   const mainWidth = Math.min(MAIN_WIDTH, treeWidth)
   const backWidth = Math.min(BACK_WIDTH, treeWidth)
   const phase = phaseOf(s)
@@ -620,7 +788,22 @@ export function drawTree(ui: Ui, s: AgentTreeState, width: number, height?: numb
       : 0
     : 0
   const hintRows = actions && !selection ? 1 + (barFeedbackText ? 1 : 0) : 0
+  const codexColor = CODEX_COLORS[appearance.colors]
+  const codexMark = CODEX_MARKS[appearance.style]
+  const codexLook: CodexLook = { lang, now, spin, marks: glyphs.marks, mark: codexMark, rail: restyleLine('│', glyphs), tight }
+  const codexRoom = (place: CodexPlace) => (place === 'row' ? treeWidth : place === 'main' ? Math.max(1, mainWidth - 2) : AGENT_WIDTH - 2)
+  // a sub-agent's Claude model, named beside the Codex model of its runs
+  const claudeOf = (n: AgentTreeNode, room: number) => modelText(n, room).trim() || 'Claude'
+  const codexAt = (caller: string | undefined, place: CodexPlace) => {
+    const node = place === 'main' || caller === undefined ? undefined : s.agents.find(n => n.id === caller)
+    return codexInline(s, caller, place, codexLook, codexRoom(place), node ? claudeOf(node, codexRoom(place)) : undefined)
+  }
+  const mainCodex = codexAt(undefined, 'main')
+  const codexOpen = codexOpenLines(s, codexLook)
   const plan = planRows({
+    codexRows: codexOpen.length ? codexOpen.length + 1 : 0,
+    mainRows: mainCodex.length,
+    extraRows: current.map(g => (g.kind === 'agent' ? codexAt(g.node.id, asRows ? 'row' : 'box').length : 0)),
     height,
     wide,
     tight,
@@ -723,6 +906,50 @@ export function drawTree(ui: Ui, s: AgentTreeState, width: number, height?: numb
     ]
   }
 
+  const codexRunColor = (run: AgentTreeCodexRun) =>
+    run.status === 'failed' ? palette.failed : run.status === 'stopped' ? palette.dim : run.status === 'blocked' ? palette.warn : codexColor
+
+  const codexDrawn = (key: string, lines: readonly CodexLine[], room: number) =>
+    lines.length ? (
+      <Box key={key} flexDirection="column" width={room} flexShrink={0}>
+        {lines.map(line => {
+          const text = clip(line.text, room)
+          if (line.kind === 'models') {
+            const chars = [...text]
+            return (
+              <Text key={line.key} wrap="truncate-end">
+                {chars.slice(0, line.codexFrom).join('')}
+                <Text color={codexColor}>{chars.slice(line.codexFrom).join('')}</Text>
+              </Text>
+            )
+          }
+          if (line.kind === 'run') {
+            return actions ? (
+              <Box key={`${line.key}:row`} flexDirection="row" width={room}>
+                <Button key={line.key} plain label={text} onPress={() => actions.codex?.(line.run.id)}>
+                  <Text color={codexRunColor(line.run)} wrap="truncate-end">{text}</Text>
+                </Button>
+              </Box>
+            ) : (
+              <Text key={line.key} color={codexRunColor(line.run)} wrap="truncate-end">
+                {text}
+              </Text>
+            )
+          }
+          return (
+            <Text
+              key={line.key}
+              size={SIZE.detail}
+              color={line.kind === 'state' ? codexRunColor(line.run) : line.tone === 'note' ? palette.dim : undefined}
+              wrap="truncate-end"
+            >
+              {text}
+            </Text>
+          )
+        })}
+      </Box>
+    ) : null
+
   const typeButton = (n: AgentTreeNode, running: boolean) =>
     actions ? (
       <Box key={`type-row:${n.id}`} width={AGENT_WIDTH - 2} flexDirection="row" justifyContent="center">
@@ -795,12 +1022,23 @@ export function drawTree(ui: Ui, s: AgentTreeState, width: number, height?: numb
           ? statusWithMark(`${glyphs.marks.done} ${w.status.done}`, mark, ` · ${fmtShortDuration(n.endedAt - n.startedAt)}`, inner)
           : statusWithMark(`${statusMark(glyphs, n.status)} ${w.status[n.status]}`, mark, '', inner)
     const edge = s.selected === n.id ? palette.main : running ? palette.agent : n.status === 'failed' ? palette.failed : palette.dim
+    // the Codex model beside the Claude model, or on the line right under it
+    const beside = codexBeside(s, n.id, codexLook, claudeOf(n, inner), inner)
+    const codexLines = codexAt(n.id, 'box')
     return (
       <Box key={`ag:${n.id}`} width={AGENT_WIDTH} marginLeft={marginLeft} {...frameProps(edge)} flexDirection="column" alignItems="center">
         {typeButton(n, running)}
-        <Text color={running ? undefined : palette.dim} wrap="truncate-end">
-          {clip(modelText(n, AGENT_WIDTH - 2), AGENT_WIDTH - 2)}
-        </Text>
+        {beside ? (
+          <Text key={`model:${n.id}`} color={running ? undefined : palette.dim} wrap="truncate-end">
+            {claudeOf(n, inner)}
+            <Text color={codexColor}>{beside}</Text>
+          </Text>
+        ) : (
+          <Text color={running ? undefined : palette.dim} wrap="truncate-end">
+            {clip(modelText(n, AGENT_WIDTH - 2), AGENT_WIDTH - 2)}
+          </Text>
+        )}
+        {codexDrawn(`codex-model:${n.id}`, codexLines.filter(line => line.kind === 'models'), inner)}
         <Text size={SIZE.detail} color={palette.dim} wrap="truncate-end">
           {running && n.effort !== undefined && choices.efforts?.[n.id] && choices.efforts[n.id] !== n.effort
             ? `${n.effort} → ${choices.efforts[n.id]}`
@@ -817,6 +1055,7 @@ export function drawTree(ui: Ui, s: AgentTreeState, width: number, height?: numb
         <Text size={SIZE.detail} color={levelColor(palette, filledShare, statusColor(palette, n.status))} wrap="truncate-end">
           {statusLine}
         </Text>
+        {codexDrawn(`codex-in:${n.id}`, codexLines.filter(line => line.kind !== 'models'), inner)}
         {barLine(bar(g), statusColor(palette, n.status), running && look.animate)}
         {frameParts(`ag:${n.id}`, AGENT_WIDTH, edge)}
       </Box>
@@ -960,6 +1199,7 @@ export function drawTree(ui: Ui, s: AgentTreeState, width: number, height?: numb
       <Text size={SIZE.detail} color={palette.dim} wrap="truncate-end">
         {roundLine}
       </Text>
+      {codexDrawn('codex-in:main', mainCodex, Math.max(1, mainWidth - 2))}
       {frameParts('main', mainWidth, palette.main)}
     </Box>
   )
@@ -1071,7 +1311,7 @@ export function drawTree(ui: Ui, s: AgentTreeState, width: number, height?: numb
       <Box key="agents" flexDirection="column" alignItems="center">
         {delegationLabel}
         <Box key="rows" flexDirection="column" width={treeWidth}>
-          {shown.map(agentRow)}
+          {shown.flatMap(g => [agentRow(g), g.kind === 'agent' ? codexDrawn(`codex-in:${g.node.id}`, codexAt(g.node.id, 'row'), treeWidth) : null])}
         </Box>
         <Text color={backMark === glyphs.node ? (light ?? palette.main) : palette.main}>{backMark}</Text>
         {arrowRow('back-row', backWidth, backBox)}
@@ -1308,6 +1548,12 @@ export function drawTree(ui: Ui, s: AgentTreeState, width: number, height?: numb
     </Box>
   )
 
+  const codexBox = codexOpen.length ? (
+    <Box key="codex" flexDirection="column" width={width} marginTop={1}>
+      {codexDrawn('codex-open', codexOpen, width)}
+    </Box>
+  ) : null
+
   const actionBar = actions ? (
     <Box key="actions" flexDirection="column" width={width} marginTop={selection ? 1 : 0}>
       {barNode || barWorkflow ? (
@@ -1402,6 +1648,7 @@ export function drawTree(ui: Ui, s: AgentTreeState, width: number, height?: numb
           {tree}
         </Box>
       )}
+      {codexBox}
       {actionBar}
       {agentPicker ? pickerRow : null}
       {detailBox ?? (plan.logRows > 0 ? logBox : null)}
