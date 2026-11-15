@@ -2040,7 +2040,7 @@ describe('Aussehen in der Leiste', () => {
 })
 
 describe('Stern-Hinweis', () => {
-  const star = (toasts: string[]) => toasts.filter(t => t.includes('github.com/MikeGT4/agent-tree'))
+  const star = (toasts: string[]) => toasts.filter(t => t.includes('github.com/KentaroFujii/agent-tree'))
 
   test('bittet beim zweiten Sitzungsstart genau einmal um einen Stern', de, async ($, on) => {
     const e = engine(on)
