@@ -1,6 +1,6 @@
 # Agent Tree
 
-[Deutsch](README.de.md)
+[Deutsch](README.de.md) · [日本語](README.ja.md)
 
 A side pane for Claude Code that shows a session's agents as a live tree.
 
