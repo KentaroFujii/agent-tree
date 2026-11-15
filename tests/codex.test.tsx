@@ -360,10 +360,11 @@ describe('Codex runs: drawn inside the caller\'s frame', () => {
     const drawn = await ui.drawn()
     const during = inside(drawn, 'ag:sub-1', 'codex-in:sub-1') ?? []
     console.log(`\n--- sub-agent box while Codex runs (90 columns) ---\n${framed(linesOf(findKey(drawn, 'ag:sub-1')), 19)}`)
-    // "Sonnet 5.5 + ◇ gpt-5.5" is wider than the box: the Codex model takes the line
-    // right under the Claude model, the run below names no model again
-    expect(linesOf(findKey(drawn, 'ag:sub-1')).slice(1, 3)).toEqual(['Sonnet 5.5', '+ ◇ gpt-5.5'])
-    expect(during[0]).toMatch(/^high · ◐ \d+ s$/)
+    // "Sonnet 5.5 + ◇ gpt-5.5 high" is wider than the box: the Codex model, with the
+    // depth of its run, takes the line right under the Claude model; the run below
+    // names no model again, and no depth either, as the bar under it shows the same
+    expect(linesOf(findKey(drawn, 'ag:sub-1')).slice(1, 4)).toEqual(['Sonnet 5.5', '+ ◇ gpt-5.5 high', '▮▮▮▯▯ high'])
+    expect(during[0]).toMatch(/^◐ \d+ s$/)
     expect(during).toHaveLength(1)
     expect(findKey(drawn, 'codex')).toBeUndefined()
     await ui.unmount()
@@ -374,8 +375,8 @@ describe('Codex runs: drawn inside the caller\'s frame', () => {
     const done = await after.drawn()
     const lines = inside(done, 'ag:sub-1', 'codex-in:sub-1') ?? []
     console.log(`\n--- sub-agent box, done (90 columns) ---\n${framed(linesOf(findKey(done, 'ag:sub-1')), 19)}`)
-    expect(linesOf(findKey(done, 'ag:sub-1'))[2]).toBe('+ ◇ gpt-5.5')
-    expect(lines[0]).toMatch(/^high · ● \d+ s ▸$/)
+    expect(linesOf(findKey(done, 'ag:sub-1'))[2]).toBe('+ ◇ gpt-5.5 high')
+    expect(lines[0]).toMatch(/^● \d+ s ▸$/)
     expect(lines[1]).toBe('│ ## Findings')
     for (const line of linesOf(findKey(done, 'ag:sub-1'))) expect([...line].length).toBeLessThanOrEqual(17)
     expect(findKey(done, 'codex')).toBeUndefined()
@@ -481,7 +482,7 @@ describe('Codex runs: drawn inside the caller\'s frame', () => {
     expect(open[0]).toMatch(/^◇ Codex · connector-codex · Codex review · gpt-5\.5 · high · exec · ● done \d+ s ▾$/)
     expect(open).toContain('  │ Overall: fix 1 before merging.')
     expect(open.at(-1)).toBe('  │ file: /tmp/cx.Ab12/answer.md')
-    expect(inside(await ui.drawn(), 'ag:sub-1', 'codex-in:sub-1')?.[0]).toMatch(/^high · ● \d+ s ▾$/)
+    expect(inside(await ui.drawn(), 'ag:sub-1', 'codex-in:sub-1')?.[0]).toMatch(/^● \d+ s ▾$/)
     await ui.press({ key: `codex-open:${run?.id}` })
     expect(findKey(await ui.drawn(), 'codex')).toBeUndefined()
     await ui.unmount()
@@ -501,8 +502,8 @@ describe('Codex runs: drawn inside the caller\'s frame', () => {
       const main = linesOf(findKey(drawn, 'codex-in:main'))
       if (surface === 'terminal') console.log(`\n--- narrow and short (44 columns, 30 rows) ---\n${rows.join('\n')}\n[main box]\n${main.join('\n')}`)
       expect(modeOf(drawn)).toBe('boxes')
-      expect(rows[2]).toBe('+ ◇ gpt-5.5')
-      expect(linesOf(findKey(drawn, 'codex-in:sub-1'))).toEqual([expect.stringMatching(/^high · ● \d+ s ▸$/), '│ ## Findings'])
+      expect(rows[2]).toBe('+ ◇ gpt-5.5 high')
+      expect(linesOf(findKey(drawn, 'codex-in:sub-1'))).toEqual([expect.stringMatching(/^● \d+ s ▸$/), '│ ## Findings'])
       for (const line of rows) expect([...line].length).toBeLessThanOrEqual(17)
       for (const line of main) expect([...line].length).toBeLessThanOrEqual(29)
       await ui.unmount()
@@ -693,7 +694,10 @@ describe('A low pane draws boxes too; what it cannot hold, its body scrolls to',
       console.log(`\n--- ${label} (58 columns, 22 rows; ${lines.length} rows drawn, the rest scrolls) ---\n${lines.join('\n')}`)
       expect(modeOf(drawn)).toBe('boxes')
       const box = linesOf(findKey(drawn, 'ag:sub-1'))
+      // "+ ◇ gpt-6.1-sol medium" is wider than the box: the name alone, and the bar
+      // (so the run's lines too) says medium
       expect(box.slice(1, 3)).toEqual(['Sonnet 5.5', '+ ◇ gpt-6.1-sol'])
+      expect(box[3]).toMatch(/medium$/)
       expect(inside(drawn, 'ag:sub-1', 'codex-in:sub-1')).toEqual(codex)
       for (const line of box) expect(len(line)).toBeLessThanOrEqual(17)
       for (const line of lines) expect(len(line)).toBeLessThanOrEqual(58)
@@ -704,11 +708,11 @@ describe('A low pane draws boxes too; what it cannot hold, its body scrolls to',
       expect(rowOf(lines, '+ ◇ gpt-6.1-sol')).toBeLessThan(22)
       await ui.unmount()
     }
-    await check('the box while Codex runs', [`medium · ◐ 0 s`])
+    await check('the box while Codex runs', ['◐ 0 s'])
     gate.release()
     await call
     await agentDone($)
-    await check('the box, done', ['medium · ● 0 s ▸', '│ OK'])
+    await check('the box, done', ['● 0 s ▸', '│ OK'])
     // the user's pane is wider (about 100 columns): the same box
     const wide = await $.ui.mount(pane(108, 22))
     expect(modeOf(await wide.drawn())).toBe('boxes')
@@ -754,5 +758,93 @@ describe('A low pane draws boxes too; what it cannot hold, its body scrolls to',
     const many = await $.ui.mount(pane(58, 22))
     expect(modeOf(await many.drawn())).toBe('boxes')
     await many.unmount()
+  })
+})
+
+// A caller with finished Codex runs, each [model, depth]; none given reads as unknown
+function withRuns(runs: ReadonlyArray<readonly [string | undefined, string | undefined]>): AgentTreeState {
+  let s = spawned(createTree(0), { agentId: 'a1', agentType: 'connector-codex', description: 'x', background: false, fork: false }, 1)
+  runs.forEach(([model, effort], i) => {
+    s = codexStarted(s, { id: `r${i}`, agentId: 'a1', kind: 'exec', ...(model ? { model } : {}), ...(effort ? { effort } : {}) }, 10 + i * 10)
+    s = codexEnded(s, `r${i}`, { status: 'done', answer: 'ok', from: 'output' }, 15 + i * 10)
+  })
+  return s
+}
+
+const texts = (lines: ReadonlyArray<{ text: string }>) => lines.map(l => l.text)
+
+describe('Codex depth: named beside the model, shown on the bar, dropped from a line that repeats it', () => {
+  test('each model carries the depth of its own latest run; a model of no known depth is named alone', () => {
+    // the box names the models of the two latest runs: the first run of gpt-5.5 is out of sight
+    const s = withRuns([['gpt-5.5', 'xhigh'], ['gpt-5.5-codex', 'high'], ['gpt-5.5', 'medium']])
+    expect(codexBeside(s, 'a1', look, 'Opus 5', 80)).toBe(' + ◇ gpt-5.5-codex high, gpt-5.5 medium')
+    expect(codexBeside(withRuns([['gpt-5.5', 'medium'], ['gpt-5', undefined]]), 'a1', look, 'Opus 5', 80)).toBe(' + ◇ gpt-5.5 medium, gpt-5')
+  })
+
+  test('beside the Claude model the depth goes when it does not fit, then the name takes its own line', () => {
+    const s = withRuns([['gpt-5.5', 'xhigh']])
+    expect(codexBeside(s, 'a1', look, 'Opus 5', 17)).toBeUndefined()
+    expect(codexBeside(s, 'a1', look, 'Opus 5', 18)).toBe(' + ◇ gpt-5.5')
+    expect(codexBeside(s, 'a1', look, 'Opus 5', 25)).toBe(' + ◇ gpt-5.5 xhigh')
+    expect(texts(codexInline(s, 'a1', 'box', look, 17, 'Sonnet 5.5'))).toEqual(['+ ◇ gpt-5.5 xhigh', '● 0 s ▸', '│ ok'])
+    expect(texts(codexInline(withRuns([['gpt-6.1-sol', 'xhigh']]), 'a1', 'box', look, 17, 'Sonnet 5.5'))).toEqual(['+ ◇ gpt-6.1-sol', '● 0 s ▸', '│ ok'])
+  })
+
+  test('in a row the Claude depth stays, and the Codex depth goes before the word Codex does', () => {
+    const s = withRuns([['gpt-5.5', 'xhigh']])
+    const row = (room: number) => texts(codexInline(s, 'a1', 'row', look, room, 'Sonnet 5.5 low')).slice(0, 1)
+    expect(row(60)).toEqual(['  Sonnet 5.5 low + ◇ Codex gpt-5.5 xhigh'])
+    expect(row(39)).toEqual(['  Sonnet 5.5 low + ◇ Codex gpt-5.5'])
+    expect(row(30)).toEqual(['  Sonnet 5.5 low + ◇ gpt-5.5'])
+  })
+
+  test('a line inside the box names its depth only when a run of the caller went another depth than the bar', () => {
+    const lines = (runs: ReadonlyArray<readonly [string | undefined, string | undefined]>) => texts(codexInline(withRuns(runs), 'a1', 'box', look, 40, 'Opus 5'))
+    // every run as deep as the latest: the bar says it once
+    expect(lines([['gpt-5.5', 'xhigh'], ['gpt-5.5', 'xhigh']])).toEqual(['● 0 s ▸', '│ ok', '● 0 s ▸', '│ ok'])
+    // one run another depth: every line says its own
+    expect(lines([['gpt-5.5', 'xhigh'], ['gpt-5.5', 'high']])).toEqual(['xhigh · ● 0 s ▸', '│ ok', 'high · ● 0 s ▸', '│ ok'])
+    // a run of no known depth is not another depth ...
+    expect(lines([['gpt-5.5', undefined], ['gpt-5.5', 'xhigh']])).toEqual(['● 0 s ▸', '│ ok', '● 0 s ▸', '│ ok'])
+    // ... but when the latest has none the bar is empty and the others keep theirs
+    expect(lines([['gpt-5.5', 'xhigh'], ['gpt-5.5', undefined]])).toEqual(['xhigh · ● 0 s ▸', '│ ok', '● 0 s ▸', '│ ok'])
+  })
+
+  test('the bar of a box with Codex runs is the depth of the latest run, and empty when that has none', en, async ($, on) => {
+    const time = mock.clock(on, { now: 1_763_186_486_335 })
+    const seen = engine(on)
+    await withCodexAgent($)
+    const box = async () => {
+      const ui = await $.ui.mount(pane(90))
+      const drawn = await ui.drawn()
+      const lines = linesOf(findKey(drawn, 'ag:sub-1'))
+      const runs = inside(drawn, 'ag:sub-1', 'codex-in:sub-1') ?? []
+      await ui.unmount()
+      return { model: lines[2], bar: lines[3], runs }
+    }
+    seen.answer({ stdout: 'ok' })
+    await $.tool.call({ tool: 'Bash', command: EXEC.replace('"high"', '"xhigh"'), agentId: 'sub-1' } as never)
+    const first = await box()
+    console.log(`\n--- one run, xhigh ---\n${[first.model, first.bar, ...first.runs].join('\n')}`)
+    expect(first.model).toBe('+ ◇ gpt-5.5 xhigh')
+    expect(first.bar).toMatch(/xhigh$/)
+    expect(first.runs).toEqual([expect.stringMatching(/^● \d+ s ▸$/), '│ ok'])
+    // a later run at another depth: the bar follows it and every line names its own depth
+    await time.advance(1_000)
+    seen.answer({ stdout: 'ok' })
+    await $.tool.call({ tool: 'Bash', command: EXEC, agentId: 'sub-1' } as never)
+    const second = await box()
+    console.log(`\n--- then a run at high ---\n${[second.model, second.bar, ...second.runs].join('\n')}`)
+    expect(second.model).toBe('+ ◇ gpt-5.5 high')
+    expect(second.bar).toMatch(/high$/)
+    expect(second.runs.filter(line => /^(xhigh|high) · ● \d+ s ▸$/.test(line))).toHaveLength(2)
+    // a latest run of no known depth: the bar is empty, the model is named alone
+    await time.advance(1_000)
+    seen.answer({ stdout: 'ok' })
+    await $.tool.call({ tool: 'Bash', command: 'codex exec -m gpt-5.5 --ephemeral -', agentId: 'sub-1' } as never)
+    const third = await box()
+    console.log(`\n--- then a run of no known depth ---\n${[third.model, third.bar, ...third.runs].join('\n')}`)
+    expect(third.model).toBe('+ ◇ gpt-5.5')
+    expect(third.bar?.trim()).toBe('')
   })
 })
