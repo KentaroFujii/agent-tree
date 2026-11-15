@@ -588,10 +588,29 @@ function codexModelsOf(runs: readonly AgentTreeCodexRun[], w: Words): string[] {
 // In a sub-agent's box the Codex model joins the Claude model on its line when
 // both fit there (" + ◇ gpt-5.5"); else it takes the line below (codexInline)
 export function codexBeside(s: AgentTreeState, caller: string, o: CodexLook, claude: string, room: number): string | undefined {
-  const models = codexModelsOf(codexRunsOf(s, caller, CODEX_IN_BOX).runs, wordsFor(o.lang))
+  const w = wordsFor(o.lang)
+  const models = codexModelsOf(codexRunsOf(s, caller, CODEX_IN_BOX).runs, w)
   if (!models.length) return undefined
-  const part = ` + ${o.mark} ${models.join(', ')}`
-  return [...`${claude}${part}`].length <= room ? part : undefined
+  // each model with the depth of its latest run; the names alone when that is too long
+  for (const names of [codexDeepModels(s, caller, models, w), models]) {
+    const part = ` + ${o.mark} ${names.join(', ')}`
+    if ([...`${claude}${part}`].length <= room) return part
+  }
+  return undefined
+}
+
+// The latest Codex run of a caller (of the models `match` accepts, if given)
+export function codexLatest(s: AgentTreeState, caller: string | undefined, match: (run: AgentTreeCodexRun) => boolean = () => true): AgentTreeCodexRun | undefined {
+  const own = codexOf(s).filter(r => r.agentId === caller && match(r))
+  return own.reduce<AgentTreeCodexRun | undefined>((best, r) => (best === undefined || r.startedAt >= best.startedAt ? r : best), undefined)
+}
+
+// Each model named with the depth of its own latest run ("gpt-5.5 xhigh"); no depth known, none shown
+function codexDeepModels(s: AgentTreeState, caller: string | undefined, models: readonly string[], w: Words): string[] {
+  return models.map(name => {
+    const effort = codexLatest(s, caller, r => (r.model ?? w.standard) === name)?.effort
+    return effort ? `${name} ${effort}` : name
+  })
 }
 
 // The lines one caller's runs take in its place; their count is what planRows adds.
@@ -605,13 +624,20 @@ export function codexInline(s: AgentTreeState, caller: string | undefined, place
   const models = codexModelsOf(runs, w)
   const paired = claude !== undefined && caller !== undefined && place !== 'main' && runs.length > 0
   const oneModel = paired && models.length === 1
+  const deep = codexDeepModels(s, caller, models, w)
+  // in a box the bar already shows the depth when every run of the caller went as deep as the latest;
+  // a nested box shows "↳ under …" on the bar instead, so there the depth stays on the run lines
+  const nestedBox = caller !== undefined && s.agents.find(n => n.id === caller)?.parentId !== undefined
+  const barDepth = place === 'box' && caller !== undefined && !nestedBox ? codexLatest(s, caller)?.effort : undefined
+  const depthInBar = barDepth !== undefined && codexOf(s).every(r => r.agentId !== caller || !r.effort || r.effort === barDepth)
   if (paired && place === 'box' && !codexBeside(s, caller, o, claude, room)) {
-    lines.push({ kind: 'models', key: `codex-models:${caller}`, text: `+ ${o.mark} ${models.join(', ')}`, codexFrom: 2 })
+    const withDepth = `+ ${o.mark} ${deep.join(', ')}`
+    lines.push({ kind: 'models', key: `codex-models:${caller}`, text: fits(withDepth) ? withDepth : `+ ${o.mark} ${models.join(', ')}`, codexFrom: 2 })
   }
   if (paired && place === 'row') {
     const head = `  ${claude} + `
-    const full = `${head}${o.mark} Codex ${models.join(', ')}`
-    lines.push({ kind: 'models', key: `codex-models:${caller}`, text: fits(full) ? full : `${head}${o.mark} ${models.join(', ')}`, codexFrom: [...head].length })
+    const candidates = [`${head}${o.mark} Codex ${deep.join(', ')}`, `${head}${o.mark} Codex ${models.join(', ')}`, `${head}${o.mark} ${models.join(', ')}`]
+    lines.push({ kind: 'models', key: `codex-models:${caller}`, text: candidates.find(fits) ?? candidates[2]!, codexFrom: [...head].length })
   }
   for (const run of runs) {
     const model = run.model ?? w.standard
@@ -625,7 +651,7 @@ export function codexInline(s: AgentTreeState, caller: string | undefined, place
     const under = place === 'row' ? (paired ? '      ' : '    ') : ''
     if (oneModel && place === 'box') {
       // the model is named above: how deep, how it went and how long, on one line
-      const head = [...(run.kind === 'review' ? ['review'] : []), ...(run.effort ? [run.effort] : [])]
+      const head = [...(run.kind === 'review' ? ['review'] : []), ...(run.effort && !depthInBar ? [run.effort] : [])]
       const short = `${codexState(run, o, w, true)}${away}${fold}`
       const full = `${head.length ? `${head.join(' · ')} · ` : ''}${short}`
       lines.push({ kind: 'run', key: `codex:${run.id}`, run, text: fits(full) ? full : short })
@@ -639,7 +665,7 @@ export function codexInline(s: AgentTreeState, caller: string | undefined, place
       }
     } else if (place === 'box') {
       lines.push({ kind: 'run', key: `codex:${run.id}`, run, text: `${o.mark} ${model}${fold}` })
-      const head = [...(run.kind === 'review' ? ['review'] : []), ...(run.effort ? [run.effort] : [])]
+      const head = [...(run.kind === 'review' ? ['review'] : []), ...(run.effort && !depthInBar ? [run.effort] : [])]
       lines.push({ kind: 'state', key: `codex-state:${run.id}`, run, text: `${head.length ? `${head.join(' · ')} · ` : ''}${codexState(run, o, w, true)}${away}` })
     } else {
       // one line where it fits; else what it is on the first, how it went on the second
@@ -793,7 +819,12 @@ export function drawTree(ui: Ui, s: AgentTreeState, width: number, height?: numb
   const codexLook: CodexLook = { lang, now, spin, marks: glyphs.marks, mark: codexMark, rail: restyleLine('│', glyphs), tight }
   const codexRoom = (place: CodexPlace) => (place === 'row' ? treeWidth : place === 'main' ? Math.max(1, mainWidth - 2) : AGENT_WIDTH - 2)
   // a sub-agent's Claude model, named beside the Codex model of its runs
-  const claudeOf = (n: AgentTreeNode, room: number) => modelText(n, room).trim() || 'Claude'
+  // with its own depth ("Sonnet 5.5 low"), as the bar below it shows the Codex depth
+  const claudeOf = (n: AgentTreeNode, room: number) => {
+    const next = choices.efforts?.[n.id]
+    const depth = n.effort === undefined ? '' : n.status === 'running' && next && next !== n.effort ? ` ${n.effort} → ${next}` : ` ${n.effort}`
+    return `${modelText(n, room).trim() || 'Claude'}${depth}`
+  }
   const codexAt = (caller: string | undefined, place: CodexPlace) => {
     const node = place === 'main' || caller === undefined ? undefined : s.agents.find(n => n.id === caller)
     return codexInline(s, caller, place, codexLook, codexRoom(place), node ? claudeOf(node, codexRoom(place)) : undefined)
@@ -1025,6 +1056,9 @@ export function drawTree(ui: Ui, s: AgentTreeState, width: number, height?: numb
     // the Codex model beside the Claude model, or on the line right under it
     const beside = codexBeside(s, n.id, codexLook, claudeOf(n, inner), inner)
     const codexLines = codexAt(n.id, 'box')
+    // with Codex runs the bar is the depth of the latest run (none when it is unknown), not the Claude depth
+    const calledCodex = codexOf(s).some(r => r.agentId === n.id)
+    const barEffort = calledCodex ? codexLatest(s, n.id)?.effort : n.effort
     return (
       <Box key={`ag:${n.id}`} width={AGENT_WIDTH} marginLeft={marginLeft} {...frameProps(edge)} flexDirection="column" alignItems="center">
         {typeButton(n, running)}
@@ -1035,16 +1069,16 @@ export function drawTree(ui: Ui, s: AgentTreeState, width: number, height?: numb
           </Text>
         ) : (
           <Text color={running ? undefined : palette.dim} wrap="truncate-end">
-            {clip(modelText(n, AGENT_WIDTH - 2), AGENT_WIDTH - 2)}
+            {clip(calledCodex ? claudeOf(n, inner) : modelText(n, AGENT_WIDTH - 2), AGENT_WIDTH - 2)}
           </Text>
         )}
         {codexDrawn(`codex-model:${n.id}`, codexLines.filter(line => line.kind === 'models'), inner)}
         <Text size={SIZE.detail} color={palette.dim} wrap="truncate-end">
-          {running && n.effort !== undefined && choices.efforts?.[n.id] && choices.efforts[n.id] !== n.effort
+          {!calledCodex && running && n.effort !== undefined && choices.efforts?.[n.id] && choices.efforts[n.id] !== n.effort
             ? `${n.effort} → ${choices.efforts[n.id]}`
             : nested
               ? `↳ ${w.under} ${nested}`
-              : effortLine(n.effort, glyphs)}
+              : effortLine(barEffort, glyphs)}
         </Text>
         <Text size={SIZE.detail} color={running ? undefined : palette.dim} wrap="truncate-end">
           {n.description || ' '}
