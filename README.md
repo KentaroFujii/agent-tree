@@ -10,7 +10,7 @@ Toggle the advisor, set the main session's effort, stop and correct running sub-
 
 Sub-agents that call sub-agents are drawn in a second row under their parent.
 
-<img src="https://github.com/MikeGT4/agent-tree/releases/download/v0.5.4/readme-agent-tree-4.gif" width="560" alt="Demo of the functions above">
+<img src="https://github.com/KentaroFujii/agent-tree/releases/download/v1.0.0/readme-agent-tree.gif" width="560" alt="Demo of the functions above">
 
 ## Install
 
@@ -40,6 +40,6 @@ Auto-update is off by default. If you turn it on, it does the following once a d
 
 Its hooks act only after you act in the pane; typing in the prompt only ends the start intro.
 
-[Guide](docs/GUIDE.md) · [PDF](https://github.com/MikeGT4/agent-tree/releases/download/v0.6.0/agent-tree-guide.pdf)
+[Guide](docs/GUIDE.md) · [PDF](https://github.com/KentaroFujii/agent-tree/releases/download/v1.0.0/agent-tree-guide.pdf)
 
 MIT, © 2026 Mike Pollow, Digitalroots

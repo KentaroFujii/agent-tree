@@ -10,7 +10,7 @@ Den Berater umschalten, die Denkstufe der Hauptsitzung einstellen, laufende Unte
 
 Unteragenten, die selbst Unteragenten aufrufen, stehen in einer zweiten Reihe unter ihrem übergeordneten Agenten.
 
-<img src="https://github.com/MikeGT4/agent-tree/releases/download/v0.5.4/readme-agent-tree-4.gif" width="560" alt="Demo der Funktionen oben">
+<img src="https://github.com/KentaroFujii/agent-tree/releases/download/v1.0.0/readme-agent-tree.gif" width="560" alt="Demo der Funktionen oben">
 
 ## Installation
 
@@ -40,6 +40,6 @@ Die automatische Aktualisierung (Auto-update) ist standardmäßig aus. Schaltest
 
 Seine Hooks greifen nur, wenn du in der Leiste handelst; Tippen in der Eingabe beendet nur das Start-Intro.
 
-[Anleitung](docs/GUIDE.de.md) · [PDF](https://github.com/MikeGT4/agent-tree/releases/download/v0.6.0/agent-tree-anleitung.pdf)
+[Anleitung](docs/GUIDE.de.md) · [PDF](https://github.com/KentaroFujii/agent-tree/releases/download/v1.0.0/agent-tree-anleitung.pdf)
 
 MIT, © 2026 Mike Pollow, Digitalroots

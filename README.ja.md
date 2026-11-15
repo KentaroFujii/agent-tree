@@ -10,7 +10,7 @@ Claude Code のサイドペイン（画面の脇に出る表示欄）です。�
 
 サブエージェントが呼んだサブエージェントは、親の下の2段目に描きます。
 
-<img src="https://github.com/MikeGT4/agent-tree/releases/download/v0.5.4/readme-agent-tree-4.gif" width="560" alt="上記の機能のデモ">
+<img src="https://github.com/KentaroFujii/agent-tree/releases/download/v1.0.0/readme-agent-tree.gif" width="560" alt="上記の機能のデモ">
 
 ## インストール
 
@@ -40,6 +40,6 @@ Auto-update は既定でオフです。オンにすると、1日に1回、対話
 
 フックが動くのは、ペインで操作したあとだけです。プロンプトへの入力で終わるのは、起動時のイントロだけです。
 
-[ガイド（英語）](docs/GUIDE.md) · [PDF（英語）](https://github.com/MikeGT4/agent-tree/releases/download/v0.6.0/agent-tree-guide.pdf)
+[ガイド（英語）](docs/GUIDE.md) · [PDF（英語）](https://github.com/KentaroFujii/agent-tree/releases/download/v1.0.0/agent-tree-guide.pdf)
 
 MIT, © 2026 Mike Pollow, Digitalroots
