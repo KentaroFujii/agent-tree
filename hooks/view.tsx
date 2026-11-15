@@ -57,7 +57,7 @@ type Ui = Pick<Elements['terminal'], 'Box' | 'Text' | 'Button'>
 export const WIDE_FROM = 84
 export const TIGHT_BELOW = 36
 export const ADVISOR_WIDTH = 20
-export const AGENT_WIDTH = 19
+export const AGENT_WIDTH = 23
 export const AGENT_GAP = 2
 export const MAIN_WIDTH = 31
 export const BACK_WIDTH = 35
@@ -747,9 +747,14 @@ export function drawTree(ui: Ui, s: AgentTreeState, width: number, height?: numb
   const detailNode = detail ? s.agents.find(n => n.id === detail.agentId) : undefined
   const agentEffort =
     mostCommon(s.agents.filter(n => n.status === 'running').map(n => n.effort)) ?? mostCommon(s.agents.map(n => n.effort))
-  const modelText = (n: AgentTreeNode, room = Infinity) => {
+  // the model family chosen for a running agent that has not taken hold yet
+  const modelWaiting = (n: AgentTreeNode) => {
     const pending = choices.agents[n.id]
-    if (!pending || pending === familyOf(n.model) || n.status !== 'running') return modelLabel(n.model) || ' '
+    return pending && pending !== familyOf(n.model) && n.status === 'running' ? pending : undefined
+  }
+  const modelText = (n: AgentTreeNode, room = Infinity) => {
+    const pending = modelWaiting(n)
+    if (!pending) return modelLabel(n.model) || ' '
     const full = `${modelLabel(n.model) || w.model} → ${familyLabel(pending)}`
     if ([...full].length <= room) return full
     const from = familyOf(n.model)
@@ -820,14 +825,25 @@ export function drawTree(ui: Ui, s: AgentTreeState, width: number, height?: numb
   const codexRoom = (place: CodexPlace) => (place === 'row' ? treeWidth : place === 'main' ? Math.max(1, mainWidth - 2) : AGENT_WIDTH - 2)
   // a sub-agent's Claude model, named beside the Codex model of its runs
   // with its own depth ("Sonnet 5.5 low"), as the bar below it shows the Codex depth
+  // A depth change waiting to take hold reads "low → high"; where that does not fit
+  // beside the model, the depth it leaves is dropped and the one it goes to stays ("Sonnet 5.5 → high").
+  // With the model changing too, the depth is set off by a dot: "Haiku → Sonnet · high".
   const claudeOf = (n: AgentTreeNode, room: number) => {
     const next = choices.efforts?.[n.id]
-    const depth = n.effort === undefined ? '' : n.status === 'running' && next && next !== n.effort ? ` ${n.effort} → ${next}` : ` ${n.effort}`
-    return `${modelText(n, room).trim() || 'Claude'}${depth}`
+    const named = (tail: string) => `${modelText(n, room - [...tail].length).trim() || 'Claude'}${tail}`
+    if (n.effort === undefined) return named('')
+    if (n.status !== 'running' || !next || next === n.effort) return named(` ${n.effort}`)
+    // beside a model that is itself changing ("Haiku → Sonnet") the depth follows after a dot,
+    // so that it does not read as one more step after the model
+    const dot = modelWaiting(n) !== undefined
+    const whole = named(dot ? ` · ${n.effort} → ${next}` : ` ${n.effort} → ${next}`)
+    return [...whole].length <= room ? whole : named(dot ? ` · ${next}` : ` → ${next}`)
   }
   const codexAt = (caller: string | undefined, place: CodexPlace) => {
     const node = place === 'main' || caller === undefined ? undefined : s.agents.find(n => n.id === caller)
-    return codexInline(s, caller, place, codexLook, codexRoom(place), node ? claudeOf(node, codexRoom(place)) : undefined)
+    // a row opens with two spaces before the Claude model, so that much less room for it
+    const claudeRoom = codexRoom(place) - (place === 'row' ? 2 : 0)
+    return codexInline(s, caller, place, codexLook, codexRoom(place), node ? claudeOf(node, claudeRoom) : undefined)
   }
   const mainCodex = codexAt(undefined, 'main')
   const codexOpen = codexOpenLines(s, codexLook)

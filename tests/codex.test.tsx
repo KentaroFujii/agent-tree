@@ -4,8 +4,8 @@ import type { On } from 'claude-code'
 
 import { codexDefaults, codexOutcome, expandVariables, parseCodexCommand, resolvedPath } from '../hooks/codex.ts'
 import { CODEX_COLORS, PALETTES, STYLES, contrast } from '../hooks/looks.ts'
-import { codexEnded, codexOf, codexStarted, codexText, codexToggled, createTree, freshTree, trimmed, spawned } from '../hooks/model.ts'
-import { codexBeside, codexInline, codexOpenLines, planRows, usedRows } from '../hooks/view.tsx'
+import { codexEnded, codexOf, codexStarted, codexText, codexToggled, createTree, effortChosen, freshTree, trimmed, spawned } from '../hooks/model.ts'
+import { AGENT_WIDTH, codexBeside, codexInline, codexOpenLines, drawTree, planRows, usedRows } from '../hooks/view.tsx'
 import type { RowPlanInput } from '../hooks/view.tsx'
 import type { AgentTreeState } from '../types'
 
@@ -359,7 +359,7 @@ describe('Codex runs: drawn inside the caller\'s frame', () => {
     const ui = await $.ui.mount(pane(90))
     const drawn = await ui.drawn()
     const during = inside(drawn, 'ag:sub-1', 'codex-in:sub-1') ?? []
-    console.log(`\n--- sub-agent box while Codex runs (90 columns) ---\n${framed(linesOf(findKey(drawn, 'ag:sub-1')), 19)}`)
+    console.log(`\n--- sub-agent box while Codex runs (90 columns) ---\n${framed(linesOf(findKey(drawn, 'ag:sub-1')), AGENT_WIDTH)}`)
     // "Sonnet 5.5 + ◇ gpt-5.5 high" is wider than the box: the Codex model, with the
     // depth of its run, takes the line right under the Claude model; the run below
     // names no model again, and no depth either, as the bar under it shows the same
@@ -374,11 +374,11 @@ describe('Codex runs: drawn inside the caller\'s frame', () => {
     const after = await $.ui.mount(pane(90))
     const done = await after.drawn()
     const lines = inside(done, 'ag:sub-1', 'codex-in:sub-1') ?? []
-    console.log(`\n--- sub-agent box, done (90 columns) ---\n${framed(linesOf(findKey(done, 'ag:sub-1')), 19)}`)
+    console.log(`\n--- sub-agent box, done (90 columns) ---\n${framed(linesOf(findKey(done, 'ag:sub-1')), AGENT_WIDTH)}`)
     expect(linesOf(findKey(done, 'ag:sub-1'))[2]).toBe('+ ◇ gpt-5.5 high')
     expect(lines[0]).toMatch(/^● \d+ s ▸$/)
     expect(lines[1]).toBe('│ ## Findings')
-    for (const line of linesOf(findKey(done, 'ag:sub-1'))) expect([...line].length).toBeLessThanOrEqual(17)
+    for (const line of linesOf(findKey(done, 'ag:sub-1'))) expect([...line].length).toBeLessThanOrEqual(AGENT_WIDTH - 2)
     expect(findKey(done, 'codex')).toBeUndefined()
     await after.unmount()
   })
@@ -488,7 +488,7 @@ describe('Codex runs: drawn inside the caller\'s frame', () => {
     await ui.unmount()
   })
 
-  test('a 44-column, 30-row pane on terminal and desktop draws boxes and keeps every Codex line inside them', en, async ($, on) => {
+  test('a 52-column, 30-row pane on terminal and desktop draws boxes and keeps every Codex line inside them', en, async ($, on) => {
     const seen = engine(on)
     await withCodexAgent($)
     seen.answer({ writes: { '/tmp/cx.Ab12/answer.md': ANSWER } })
@@ -496,16 +496,28 @@ describe('Codex runs: drawn inside the caller\'s frame', () => {
     seen.answer({ stdout: 'No issues found.' })
     await $.tool.call({ tool: 'Bash', command: REVIEW } as never)
     for (const surface of ['terminal', 'desktop'] as const) {
-      const ui = await $.ui.mount({ ...pane(44, 30), surface })
+      const ui = await $.ui.mount({ ...pane(52, 30), surface })
       const drawn = await ui.drawn()
       const rows = linesOf(findKey(drawn, 'ag:sub-1'))
       const main = linesOf(findKey(drawn, 'codex-in:main'))
-      if (surface === 'terminal') console.log(`\n--- narrow and short (44 columns, 30 rows) ---\n${rows.join('\n')}\n[main box]\n${main.join('\n')}`)
+      if (surface === 'terminal') console.log(`\n--- narrow and short (52 columns, 30 rows) ---\n${rows.join('\n')}\n[main box]\n${main.join('\n')}`)
       expect(modeOf(drawn)).toBe('boxes')
       expect(rows[2]).toBe('+ ◇ gpt-5.5 high')
       expect(linesOf(findKey(drawn, 'codex-in:sub-1'))).toEqual([expect.stringMatching(/^● \d+ s ▸$/), '│ ## Findings'])
-      for (const line of rows) expect([...line].length).toBeLessThanOrEqual(17)
+      for (const line of rows) expect([...line].length).toBeLessThanOrEqual(AGENT_WIDTH - 2)
       for (const line of main) expect([...line].length).toBeLessThanOrEqual(29)
+      await ui.unmount()
+    }
+  })
+
+  test('two boxes side by side need 49 columns; a pane narrower than that draws one line each', en, async ($, on) => {
+    const seen = engine(on)
+    await withCodexAgent($)
+    seen.answer({ stdout: 'ok' })
+    await $.tool.call({ tool: 'Bash', command: EXEC, agentId: 'sub-1' } as never)
+    for (const [columns, mode] of [[44, 'rows'], [48, 'rows'], [49, 'boxes'], [52, 'boxes']] as const) {
+      const ui = await $.ui.mount(pane(columns, 30))
+      expect([columns, modeOf(await ui.drawn())]).toEqual([columns, mode])
       await ui.unmount()
     }
   })
@@ -699,7 +711,7 @@ describe('A low pane draws boxes too; what it cannot hold, its body scrolls to',
       expect(box.slice(1, 3)).toEqual(['Sonnet 5.5', '+ ◇ gpt-6.1-sol'])
       expect(box[3]).toMatch(/medium$/)
       expect(inside(drawn, 'ag:sub-1', 'codex-in:sub-1')).toEqual(codex)
-      for (const line of box) expect(len(line)).toBeLessThanOrEqual(17)
+      for (const line of box) expect(len(line)).toBeLessThanOrEqual(AGENT_WIDTH - 2)
       for (const line of lines) expect(len(line)).toBeLessThanOrEqual(58)
       // from the top: the heading, the main session, then the agent's box with
       // both models inside the first 22 rows; the run's own lines may need a scroll
@@ -848,3 +860,86 @@ describe('Codex depth: named beside the model, shown on the bar, dropped from a 
     expect(third.bar?.trim()).toBe('')
   })
 })
+
+// A running sub-agent that called Codex, drawn by drawTree at `columns`; `next` is a depth chosen
+// for its Claude model that has not taken hold yet (the box then reads "now → next")
+function drawnCaller(o: { model: string; effort: string; next?: string; runs: ReadonlyArray<readonly [string, string]>; columns: number }) {
+  let s = spawned(createTree(0), { agentId: 'a1', agentType: 'connector-codex', description: 'x', model: o.model, background: false, fork: false }, 1)
+  s = { ...s, agents: s.agents.map(n => ({ ...n, effort: o.effort })) }
+  o.runs.forEach(([model, effort], i) => {
+    s = codexStarted(s, { id: `r${i}`, agentId: 'a1', kind: 'exec', model, effort }, 10 + i * 10)
+    s = codexEnded(s, `r${i}`, { status: 'done', answer: 'ok', from: 'output' }, 15 + i * 10)
+  })
+  if (o.next) s = effortChosen(s, 'a1', o.next, 50)
+  return drawTree({ Box: 'Box', Text: 'Text', Button: 'Button' } as never, s, o.columns, 60, { frame: 0, animate: false, now: 100, lang: 'en' })
+}
+
+describe('Claude depth change waiting to take hold, in a box that called Codex', () => {
+  const SOL = [['gpt-6.1-sol', 'xhigh']] as const
+
+  test('the depth now and the one it goes to fit the line: "low → high"; the Codex model and its depth stay on the next', () => {
+    const calm = linesOf(findKey(drawnCaller({ model: 'claude-sonnet-5-5', effort: 'low', runs: SOL, columns: 90 }), 'ag:a1'))
+    expect(calm.slice(1, 4)).toEqual(['Sonnet 5.5 low', '+ ◇ gpt-6.1-sol xhigh', '▮▮▮▮▯ xhigh'])
+    const waiting = linesOf(findKey(drawnCaller({ model: 'claude-sonnet-5-5', effort: 'low', next: 'high', runs: SOL, columns: 90 }), 'ag:a1'))
+    console.log(`\n--- Sonnet 5.5 low, high chosen, Codex gpt-6.1-sol xhigh (90 columns) ---\n${framed(waiting, AGENT_WIDTH)}`)
+    expect(waiting.slice(1, 4)).toEqual(['Sonnet 5.5 low → high', '+ ◇ gpt-6.1-sol xhigh', '▮▮▮▮▯ xhigh'])
+    for (const line of waiting) expect(len(line)).toBeLessThanOrEqual(AGENT_WIDTH - 2)
+  })
+
+  test('where "now → next" does not fit, the depth it leaves goes and the one it goes to stays', () => {
+    const box = linesOf(findKey(drawnCaller({ model: 'claude-opus-5-5', effort: 'medium', next: 'xhigh', runs: SOL, columns: 90 }), 'ag:a1'))
+    console.log(`\n--- Opus 5.5 medium, xhigh chosen, Codex gpt-6.1-sol xhigh (90 columns) ---\n${framed(box, AGENT_WIDTH)}`)
+    expect(box.slice(1, 4)).toEqual(['Opus 5.5 → xhigh', '+ ◇ gpt-6.1-sol xhigh', '▮▮▮▮▯ xhigh'])
+    for (const line of box) expect(len(line)).toBeLessThanOrEqual(AGENT_WIDTH - 2)
+  })
+
+  test('a finished agent shows the depth it ran with, no arrow', () => {
+    let s = spawned(createTree(0), { agentId: 'a1', agentType: 'connector-codex', description: 'x', model: 'claude-sonnet-5-5', background: false, fork: false }, 1)
+    s = codexStarted(s, { id: 'r0', agentId: 'a1', kind: 'exec', model: 'gpt-6.1-sol', effort: 'xhigh' }, 10)
+    s = effortChosen(s, 'a1', 'high', 20)
+    s = { ...s, agents: s.agents.map(n => ({ ...n, effort: 'low', status: 'done' as const, endedAt: 30 })) }
+    const drawn = drawTree({ Box: 'Box', Text: 'Text', Button: 'Button' } as never, s, 90, 60, { frame: 0, animate: false, now: 100, lang: 'en' })
+    expect(linesOf(findKey(drawn, 'ag:a1'))[1]).toBe('Sonnet 5.5 low')
+  })
+
+  test('a row of one line each does the same with the room a row leaves after its two spaces', () => {
+    const row = (columns: number) => linesOf(findKey(drawnCaller({ model: 'claude-sonnet-5-5', effort: 'low', next: 'high', runs: SOL, columns }), 'rows'))[1]
+    expect(row(44)).toBe('  Sonnet 5.5 low → high + ◇ gpt-6.1-sol')
+    // 21 columns of tree leave 19 after the two spaces: "Sonnet 5.5 low → high" is 21, so the depth it leaves goes
+    expect(row(22)).toBe('  Sonnet 5.5 → high …')
+  })
+
+  // the model and the depth both waiting: the depth is set off by a dot, so it does not read as a step after the model
+  test('a model change and a depth change together read "Haiku → Sonnet · high", not a second arrow', () => {
+    const box = (model: string, family: string) => linesOf(findKey(drawnWithModelWaiting(90, { model, family }), 'ag:a1'))
+    const haiku = box('claude-haiku-4-5', 'sonnet')
+    console.log(`\n--- Haiku 4.5 → Sonnet, low → high, Codex gpt-6.1-sol xhigh (90 columns) ---\n${framed(haiku, AGENT_WIDTH)}`)
+    expect(haiku.slice(1, 4)).toEqual(['Haiku → Sonnet · high', '+ ◇ gpt-6.1-sol xhigh', '▮▮▮▮▯ xhigh'])
+    expect(box('claude-sonnet-5-5', 'opus')[1]).toBe('Sonnet → Opus · high')
+    for (const line of haiku) expect(len(line)).toBeLessThanOrEqual(AGENT_WIDTH - 2)
+  })
+
+  test('in a row the dot form keeps the depth it leaves while it fits, then drops it', () => {
+    const row = (columns: number) => linesOf(findKey(drawnWithModelWaiting(columns), 'rows'))[1]
+    expect(row(44)).toBe('  Haiku 4.5 → Sonnet · low → high + ◇ gpt-…')
+    expect(row(22)).toBe('  Haiku → Sonnet · h…')
+  })
+
+  test('a depth change alone and a model change alone keep their look', () => {
+    const modelOnly = drawnWithModelWaiting(90, { effortNext: false })
+    expect(linesOf(findKey(modelOnly, 'ag:a1'))[1]).toBe('Haiku → Sonnet low')
+    const depthOnly = linesOf(findKey(drawnCaller({ model: 'claude-haiku-4-5', effort: 'low', next: 'high', runs: SOL, columns: 90 }), 'ag:a1'))
+    expect(depthOnly[1]).toBe('Haiku 4.5 low → high')
+  })
+})
+
+// the same caller with a model chosen as well (and a depth, unless `effortNext` is false)
+function drawnWithModelWaiting(columns: number, o: { model?: string; effort?: string; next?: string; family?: string; effortNext?: boolean } = {}) {
+  let s = spawned(createTree(0), { agentId: 'a1', agentType: 'connector-codex', description: 'x', model: o.model ?? 'claude-haiku-4-5', background: false, fork: false }, 1)
+  s = { ...s, agents: s.agents.map(n => ({ ...n, effort: o.effort ?? 'low' })) }
+  s = codexStarted(s, { id: 'r0', agentId: 'a1', kind: 'exec', model: 'gpt-6.1-sol', effort: 'xhigh' }, 10)
+  s = codexEnded(s, 'r0', { status: 'done', answer: 'ok', from: 'output' }, 15)
+  if (o.effortNext !== false) s = effortChosen(s, 'a1', o.next ?? 'high', 50)
+  s = { ...s, choices: { ...(s.choices ?? { agents: {} }), agents: { a1: o.family ?? 'sonnet' } } }
+  return drawTree({ Box: 'Box', Text: 'Text', Button: 'Button' } as never, s, columns, 60, { frame: 0, animate: false, now: 100, lang: 'en' })
+}
