@@ -13,5 +13,3 @@ Claude Code's plugin storage keeps your look, the model and effort choices, the 
 ## Hooks
 
 They act only after you act in the pane: a model or effort pick, a stop, a message to an agent (noted in the transcript), the advisor button (`/advisor`). Typing in the prompt only ends the start intro, text unchanged.
-
-Questions: github.com/MikeGT4/agent-tree/issues
