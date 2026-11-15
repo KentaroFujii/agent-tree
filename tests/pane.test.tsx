@@ -567,7 +567,8 @@ describe('Agent Tree', () => {
     for (let i = 1; i <= 3; i++) {
       await $.turn.complete({ answer: 'OK', durationMs: 900, isAborted: false, turnId: 't1', agentId: `sub-${i}`, reason: 'answer' })
     }
-    const ui = await $.ui.mount(pane(90, 41))
+    // 95 columns: with the advisor column, three boxes of 23 side by side
+    const ui = await $.ui.mount(pane(95, 41))
     expect(await screen(ui)).toMatch(/Prüfung 6/)
     expect(await screen(ui)).not.toMatch(/Prüfung 1/)
     expect(await screen(ui)).toMatch(/\+3 weitere beendet/)
@@ -1330,7 +1331,7 @@ describe('Agent Tree', () => {
     await $.turn.start({ text: 'Lauf', turnId: 't1' })
     await $.agent.spawn({ prompt: 'P.', description: 'Messung', subagentType: 'performance-optimizer-extra' } as never)
     const ui = await $.ui.mount(pane(90))
-    expect((await ui.find({ key: 'select:sub-1' }))?.props.label).toBe('performance-opti…')
+    expect((await ui.find({ key: 'select:sub-1' }))?.props.label).toBe('performance-optimize…')
     await ui.unmount()
   })
 
@@ -3042,7 +3043,8 @@ describe('Platz und Hebel in der Leiste', () => {
     engine(on)
     await agents($, 3)
     for (const rows of [40, 44, 47]) {
-      const ui = await $.ui.mount(pane(67, rows))
+      // 75 columns: three boxes of 23 side by side
+      const ui = await $.ui.mount(pane(75, rows))
       if (!has(await screen(ui), 'actions:close')) await ui.press({ key: 'select:sub-3' })
       const text = await screen(ui)
       expect([rows, has(text, 'actions:close'), ...['sub-1', 'sub-2', 'sub-3'].map(id => has(text, `select:${id}`))]).toEqual([rows, true, true, true, true])
@@ -3053,10 +3055,10 @@ describe('Platz und Hebel in der Leiste', () => {
   test('ein gewählter Kasten hinter der Grenze wird eingeblendet', de, async ($, on) => {
     engine(on)
     await agents($, 6)
-    const tall = await $.ui.mount(pane(67, 90))
+    const tall = await $.ui.mount(pane(75, 90))
     await tall.press({ key: 'select:sub-5' })
     await tall.unmount()
-    const ui = await $.ui.mount(pane(67, 47))
+    const ui = await $.ui.mount(pane(75, 47))
     expect(has(await screen(ui), 'select:sub-5')).toBe(true)
     await ui.unmount()
   })
@@ -3065,7 +3067,7 @@ describe('Platz und Hebel in der Leiste', () => {
     engine(on)
     await agents($, 3)
     await $.tool.call({ tool: 'Read', file_path: '/p/src/auth.ts', agentId: 'sub-1' } as never)
-    const ui = await $.ui.mount(pane(67, 47))
+    const ui = await $.ui.mount(pane(75, 47))
     await ui.press({ key: 'select:sub-1' })
     await ui.press({ key: 'detail:sub-1' })
     const text = await screen(ui)
@@ -3084,7 +3086,7 @@ describe('Platz und Hebel in der Leiste', () => {
       cost: { usd: 1.5 },
       changed: ['context', 'rateLimits'],
     } as never)
-    const ui = await $.ui.mount(pane(67, 46))
+    const ui = await $.ui.mount(pane(75, 46))
     await ui.press({ key: 'select:sub-1' })
     expect(await screen(ui)).toContain('Woche')
     await ui.press({ key: 'detail:sub-1' })
@@ -3182,7 +3184,8 @@ describe('Platz und Hebel in der Leiste', () => {
     await ui.press({ key: 'select:sub-1' })
     await ui.press({ key: 'pick:sub-1' })
     await ui.press({ key: 'choose:sub-1:sonnet' })
-    expect(await screen(ui)).toContain('Haiku → Sonnet')
+    // in the box itself, not only on the button of the action row
+    expect((await ui.find({ key: 'ag:sub-1' }))?.text).toContain('Haiku 4.5 → Sonnet')
     await ui.unmount()
   })
 

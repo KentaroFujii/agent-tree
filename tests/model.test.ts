@@ -801,7 +801,8 @@ describe('Aussehen', () => {
     const at = (text: string, mark: string) => [...text].indexOf(mark)
     expect(statusWithMark('◐ running', '✉', ' · 12.3k', width)).toBe('◐ running ✉ · 12.3k')
     expect(at(statusWithMark('● fertig', '✓', ' · 12:34', width), '✓')).toBeLessThan(width)
-    expect(statusWithMark('✗ fehlgeschlagen', '✓', '', width)).toBe('✗ fehlgeschlagen✓')
+    expect(statusWithMark('✗ fehlgeschlagen', '✓', '', width)).toBe('✗ fehlgeschlagen ✓')
+    expect(statusWithMark('✗ gar nicht erledigt', '✓', '', width)).toBe('✗ gar nicht erledigt✓')
     expect(statusWithMark('◐ läuft', '', ' · 70,9k', width)).toBe('◐ läuft · 70,9k')
     expect([...statusWithMark('◐ ein sehr langes Statuswort', '✉', '', width)].length).toBeLessThanOrEqual(width)
     expect(at(statusWithMark('◐ ein sehr langes Statuswort', '✉', '', width), '✉')).toBe(width - 1)
@@ -1232,9 +1233,14 @@ describe('Warnzeichen bei gleicher Datei', () => {
 
 describe('Statuszeile im Kasten', () => {
   test('mit Warnzeichen oder langem Wort bleibt die Prozentzahl sichtbar', () => {
-    expect(statusWithMark('◐ läuft', '⚠', ' ░░░ 16 %', AGENT_WIDTH - 2, ' 16 %')).toBe('◐ läuft ⚠ 16 %')
-    expect(statusWithMark('◐ running', '', ' ███ 100%', AGENT_WIDTH - 2, ' 100%')).toBe('◐ running 100%')
-    expect(statusWithMark('◐ läuft', '⚠', ' ░░░ 8 %', AGENT_WIDTH - 2, ' 8 %')).toBe('◐ läuft ⚠ ░░░ 8 %')
+    const width = AGENT_WIDTH - 2
+    // where the bar fits it stays ...
+    expect(statusWithMark('◐ läuft', '⚠', ' ░░░ 16 %', width, ' 16 %')).toBe('◐ läuft ⚠ ░░░ 16 %')
+    expect(statusWithMark('◐ running', '', ' ███ 100%', width, ' 100%')).toBe('◐ running ███ 100%')
+    expect(statusWithMark('◐ läuft', '⚠', ' ░░░ 8 %', width, ' 8 %')).toBe('◐ läuft ⚠ ░░░ 8 %')
+    // ... where it does not, the bar goes and the number stays
+    expect(statusWithMark('◐ läuft lange', '⚠', ' ░░░ 16 %', width, ' 16 %')).toBe('◐ läuft lange ⚠ 16 %')
+    expect(statusWithMark('◐ still running', '', ' ███ 100%', width, ' 100%')).toBe('◐ still running 100%')
   })
 })
 
